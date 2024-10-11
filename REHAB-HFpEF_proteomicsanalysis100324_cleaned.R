@@ -872,7 +872,7 @@ tbl_summary(tmpdf,
   gtsave(filename = "SuppTable2_matchedvsunmatched.html")
 
 ######################
-## 16. Supplemental figure 3 - biomarker change (baseline to follow up) 
+## 16. Supplemental figure 3 - protein change (baseline to follow up) by treatment
 ######################
 #create long form dataset
 rprotfuds_long=pivot_longer(data=rprotfuds[,
@@ -889,7 +889,7 @@ rprotfuds_long$Protein = factor(rprotfuds_long$Protein,levels=protlist)
 rprotds_wide=merge(rprotblds_long,
                    rprotfuds_long,by=c('subject_id','Protein','Intervention',"bl_smw","fu_smw","bl_sppb","fu_sppb","sppb_chg","smw_chg"),
                    all.x=TRUE)
-rprotds_wide$Protein_change = log2(rprotds_wide$ExpressionLevel.y+0.001) - log2(rprotds_wide$ExpressionLevel.x+0.001)
+rprotds_wide$Protein_change = log2(rprotds_wide$ExpressionLevel.y) - log2(rprotds_wide$ExpressionLevel.x)
 
 supfig3 <- ggplot(data=rprotds_wide,
              mapping=aes(x=Intervention, y=ExpressionLevel.y/ExpressionLevel.x, fill=Intervention))+
@@ -910,9 +910,29 @@ supfig3 <- ggplot(data=rprotds_wide,
               legend.box.background = element_rect(color = "black"))
 
 
-pdf("SuppFigure3_Proteinchange.pdf",height=9,width=7,onefile = TRUE)
+pdf("Results/SuppFigure3_Proteinchange.pdf",height=9,width=7,onefile = TRUE)
 supfig3
 dev.off()
-ggsave(supfig3,file='SuppFigure3_Proteinchange.eps',height=9,width=7,device="eps")
+ggsave(supfig3,file='Results/SuppFigure3_Proteinchange.eps',height=9,width=7,device="eps")
 
 
+##################### protein change from baseline to follow up overall
+dftmp=rprotds_wide[!is.na(rprotds_wide$timepoint.y),]
+for (i in 1:length(protlist)){
+  print(protlist[i])
+  print(paste(round(quantile(dftmp[dftmp$Protein==protlist[i],"ExpressionLevel.y"]-
+                               dftmp[dftmp$Protein==protlist[i],"ExpressionLevel.x"],
+                       probs=c(0.5)),3),
+              "(",
+              round(quantile(dftmp[dftmp$Protein==protlist[i],"ExpressionLevel.y"]-
+                               dftmp[dftmp$Protein==protlist[i],"ExpressionLevel.x"],
+                       probs=c(0.25)),3),
+              ",",
+              round(quantile(dftmp[dftmp$Protein==protlist[i],"ExpressionLevel.y"]-
+                               dftmp[dftmp$Protein==protlist[i],"ExpressionLevel.x"],
+                       probs=c(0.75)),3),
+              ")",sep=""))
+  
+  print(wilcox.test(x=dftmp[dftmp$Protein==protlist[i],"ExpressionLevel.y"]-
+                    dftmp[dftmp$Protein==protlist[i],"ExpressionLevel.x"])$p.value)
+}
