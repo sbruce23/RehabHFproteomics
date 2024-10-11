@@ -8,7 +8,7 @@ library(gt)
 library(gtsummary)
 library(reshape2)
 library(sjPlot)
-
+library(ggforce)
 
 setwd("~/Library/CloudStorage/OneDrive-SharedLibraries-HarvardUniversity/REHAB-HFpEF Ancillary - General/REHAB-HF proteomics/REHAB-HF proteomics data")
 
@@ -68,11 +68,17 @@ colnames(olink_dta)=c('ID',as.character(olink_colnames));
 #4% missingness in CHIT1
 #some minor missingness across others
 
-#keep only baseline for now
+#baseline
 olink_dta_bl=olink_dta[grep("BL",olink_dta$ID),]
 olink_dta_bl=olink_dta_bl[-grep("BL_2",olink_dta_bl$ID),] #remove the extra BL reading for 20-017
 olink_dta_bl$timepoint="Baseline";
 olink_dta_bl$subject_id=gsub(" BL","",olink_dta_bl$ID,fixed=TRUE)
+
+#followup
+olink_dta_fu=olink_dta[grep("FU",olink_dta$ID),]
+olink_dta_fu$timepoint="Follow Up";
+olink_dta_fu$subject_id=gsub(" FU","",olink_dta_fu$ID,fixed=TRUE)
+olink_dta_fu$subject_id=gsub("FU","",olink_dta_fu$subject_id,fixed=TRUE)
 
 setwd("~/Library/CloudStorage/OneDrive-SharedLibraries-HarvardUniversity/REHAB-HFpEF Ancillary - General/REHAB-HF dataset");
 
@@ -151,6 +157,10 @@ varlist = c("age","sex","race___4","hf_cat","creatinine_value",
 rprotblds <- merge(x=olink_dta_bl,y=rhfds[,c("study_id",varlist)],
                    by.x='subject_id',by.y='study_id',all.x=TRUE)
 
+rprotfuds <- merge(x=olink_dta_fu,y=rhfds[,c("study_id",varlist)],
+                   by.x='subject_id',by.y='study_id',all.x=TRUE)
+
+
 #add intervention indicator from rbiods
 rprotblds <- merge(x=rprotblds,y=rbiods[rbiods$timepoint=='Baseline',
                                         c('subject_id','intervention_1_control_0')],
@@ -158,6 +168,13 @@ rprotblds <- merge(x=rprotblds,y=rbiods[rbiods$timepoint=='Baseline',
 rprotblds$intervention_1_control_0[rprotblds$subject_id=='10-031'] = 0; #10-031 only had measurement at follow up but is in control
 rprotblds$intervention_1_control_0 <- factor(rprotblds$intervention_1_control_0,
                                              levels=c(0,1))
+
+rprotfuds <- merge(x=rprotfuds,y=rbiods[rbiods$timepoint=='Baseline',
+                                        c('subject_id','intervention_1_control_0')],
+                   by.x='subject_id',by.y='subject_id',all.x=TRUE)
+rprotfuds$intervention_1_control_0 <- factor(rprotfuds$intervention_1_control_0,
+                                             levels=c(0,1))
+
 # #means and sds of protein expressions
 # apply(rprotblds[,3:94],2,mean)
 # apply(rprotblds[,3:94],2,sd)
@@ -377,12 +394,12 @@ fig2 <- ggplot(data=rprotblds_long,mapping=aes(x=ExpressionLevel,y=smw_chg,color
 
 
 # Print figures
-pdf("Results/Figure1_ChangeinSPPB.pdf",width=6,height=3)
+pdf("Results/Figure1_ChangeinSPPB.pdf",width=10,height=6)
 print(fig1)
 dev.off()
 ggsave(fig1,file='Results/Figure1_ChangeinSPPB.eps',width=6,height=3,device="eps")
 
-pdf("Results/Figure2_Changein6MWD.pdf",width=6,height=3)
+pdf("Results/Figure2_Changein6MWD.pdf",width=10,height=6)
 print(fig2)
 dev.off()
 ggsave(fig2,file='Results/Figure2_Changein6MWD.eps',width=6,height=3,device="eps")
@@ -858,47 +875,44 @@ tbl_summary(tmpdf,
 ## 16. Supplemental figure 3 - biomarker change (baseline to follow up) 
 ######################
 #create long form dataset
-rcombds_long_fu=pivot_longer(data=rcombds[rcombds$timepoint=='Follow Up',
-                                          c("subject_id","timepoint","intervention_1_control_0",
-                                            bm.name,"bl_smw","fu_smw","bl_sppb","fu_sppb")],
-                             cols=c('creatinine_mg_dl':'troponin_t_ng_l'),
-                             names_to='Biomarker',values_to='ExpressionLevel')
-rcombds_long_fu$intervention_1_control_0 <- factor(rcombds_long_fu$intervention_1_control_0,levels=c(0,1))
-rcombds_long_fu$sppb_chg = rcombds_long_fu$fu_sppb - rcombds_long_fu$bl_sppb
-rcombds_long_fu$smw_chg = rcombds_long_fu$fu_smw - rcombds_long_fu$bl_smw
-colnames(rcombds_long_fu)[3] <- "Intervention"
-rcombds_long_fu$Biomarker = factor(rcombds_long_fu$Biomarker,levels=c("creatinine_mg_dl","hs_crp_mg_l",
-                                                                      "troponin_t_ng_l","nt_pro_bnp","troponin_i_pg_ml"))
-bm.labs <- c("Creatinine (mg/dL)", "Hs-CRP (mg/L)","Hs-cTnT (ng/L)", "NT-proBNP (ng/L)",
-             "Hs-cTnI (ng/L)")
-names(bm.labs) <- levels(rcombds_long_fu$Biomarker)
+rprotfuds_long=pivot_longer(data=rprotfuds[,
+                                           c("subject_id","timepoint","intervention_1_control_0",
+                                             "bl_smw","fu_smw","bl_sppb","fu_sppb",protlist)],
+                            cols=protlist,
+                            names_to='Protein',values_to='ExpressionLevel')
+rprotfuds_long$sppb_chg = rprotfuds_long$fu_sppb - rprotfuds_long$bl_sppb
+rprotfuds_long$smw_chg = rprotfuds_long$fu_smw - rprotfuds_long$bl_smw
+colnames(rprotfuds_long)[3] <- "Intervention"
+rprotfuds_long$Protein = factor(rprotfuds_long$Protein,levels=protlist)
 
-rcombds_wide=merge(rcombds_long_bl,
-                   rcombds_long_fu,by=c('subject_id','Biomarker','Intervention',"bl_smw","fu_smw","bl_sppb","fu_sppb","sppb_chg","smw_chg"),
+
+rprotds_wide=merge(rprotblds_long,
+                   rprotfuds_long,by=c('subject_id','Protein','Intervention',"bl_smw","fu_smw","bl_sppb","fu_sppb","sppb_chg","smw_chg"),
                    all.x=TRUE)
-rcombds_wide$Biomarker_change = log2(rcombds_wide$ExpressionLevel.y+0.001) - log2(rcombds_wide$ExpressionLevel.x+0.001)
+rprotds_wide$Protein_change = log2(rprotds_wide$ExpressionLevel.y+0.001) - log2(rprotds_wide$ExpressionLevel.x+0.001)
 
-supfig2 <- ggplot(data=rcombds_wide,
+supfig3 <- ggplot(data=rprotds_wide,
              mapping=aes(x=Intervention, y=ExpressionLevel.y/ExpressionLevel.x, fill=Intervention))+
-        geom_violin()+facet_wrap_paginate('Biomarker',scales='free',ncol=2,nrow=3,
-                                          page=1,labeller = labeller(Biomarker = bm.labs))+hw+
+        geom_boxplot()+facet_wrap_paginate('Protein',scales='free',ncol=3,
+                                          page=1)+hw+
         labs(y="Ratio of change from baseline to 12-weeks")+
         geom_hline(yintercept=1,linetype=2)+
-        scale_y_continuous(trans='log2',labels = function(x) sprintf("%.3f", x))+
+        scale_y_continuous(trans='log2',labels = function(x) sprintf("%.3f", x),
+                           breaks=seq(0.5,1.5,length.out=6))+
         scale_x_discrete(breaks=c(1,0),
                          labels=c("RI","AC"))+
         scale_fill_discrete(breaks=c(0,1),
-                            labels=c("Attention Control (AC)","Rehabilitation Intervention (RI)"))+
+                            labels=c("AC","RI"))+
         theme(axis.title.x = element_blank(),
               axis.title.y = element_text(face="bold"),
               legend.title = element_blank(),
-              legend.position = c(0.75,0.15),
+              legend.position = c(0.85,0.15),
               legend.box.background = element_rect(color = "black"))
 
 
-pdf("SuppFigure3_Biomarkerchange.pdf",height=9,width=7,onefile = TRUE)
-supfig2
+pdf("SuppFigure3_Proteinchange.pdf",height=9,width=7,onefile = TRUE)
+supfig3
 dev.off()
-ggsave(supfig2,file='SuppFigure3_Biomarkerchange.eps',height=9,width=7,device="eps")
+ggsave(supfig3,file='SuppFigure3_Proteinchange.eps',height=9,width=7,device="eps")
 
 
