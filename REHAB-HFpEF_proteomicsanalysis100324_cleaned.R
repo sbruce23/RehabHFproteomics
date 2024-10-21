@@ -364,8 +364,13 @@ rprotblds_long$smw_chg = rprotblds_long$fu_smw - rprotblds_long$bl_smw
 colnames(rprotblds_long)[3] <- "Intervention"
 rprotblds_long$Protein = factor(rprotblds_long$Protein,levels=protlist)
 
+protlist.6mwd <- c("LDL receptor","ALCAM","PLC","CHIT1","Gal-4")
+protlist.sppb <- c("LDL receptor","ALCAM","GP6","CCL16","ST2")
+
 #SPPB
-fig1 <- ggplot(data=rprotblds_long,mapping=aes(x=ExpressionLevel,y=sppb_chg,color=Intervention))+
+
+fig1 <- ggplot(data=rprotblds_long[rprotblds_long$Protein %in% protlist.sppb,],
+               mapping=aes(x=ExpressionLevel,y=sppb_chg,color=Intervention))+
   geom_smooth(method='lm')+
   geom_hline(yintercept=0,color='black',linetype='dashed')+
   facet_wrap('Protein',scales='free',ncol=3)+
@@ -379,7 +384,8 @@ fig1 <- ggplot(data=rprotblds_long,mapping=aes(x=ExpressionLevel,y=sppb_chg,colo
         legend.box.background = element_rect(color = "black"))
 
 #6MWD
-fig2 <- ggplot(data=rprotblds_long,mapping=aes(x=ExpressionLevel,y=smw_chg,color=Intervention))+
+fig2 <- ggplot(data=rprotblds_long[rprotblds_long$Protein %in% protlist.6mwd,],
+               mapping=aes(x=ExpressionLevel,y=smw_chg,color=Intervention))+
   geom_smooth(method='lm')+
   geom_hline(yintercept=0,color='black',linetype='dashed')+
   facet_wrap('Protein',scales='free',ncol=3)+
