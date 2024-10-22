@@ -1380,7 +1380,7 @@ dev.off()
 ggsave(supfig3,file='Results/SuppFigure3_Proteinchange.eps',height=9,width=7,device="eps")
 
 
-##################### protein change from baseline to follow up overall
+##################### protein change from baseline to follow up overall then by treatment group
 dftmp=rprotds_wide[!is.na(rprotds_wide$timepoint.y),]
 for (i in 1:length(protlist)){
   print(protlist[i])
@@ -1399,4 +1399,47 @@ for (i in 1:length(protlist)){
   
   print(wilcox.test(x=dftmp[dftmp$Protein==protlist[i],"ExpressionLevel.y"]-
                     dftmp[dftmp$Protein==protlist[i],"ExpressionLevel.x"])$p.value)
+}
+
+#attention control
+dftmp=rprotds_wide[!is.na(rprotds_wide$timepoint.y) & rprotds_wide$Intervention==0,]
+for (i in 1:length(protlist)){
+  print(protlist[i])
+  print(paste(round(quantile(dftmp[dftmp$Protein==protlist[i],"ExpressionLevel.y"]-
+                               dftmp[dftmp$Protein==protlist[i],"ExpressionLevel.x"],
+                             probs=c(0.5)),3),
+              "(",
+              round(quantile(dftmp[dftmp$Protein==protlist[i],"ExpressionLevel.y"]-
+                               dftmp[dftmp$Protein==protlist[i],"ExpressionLevel.x"],
+                             probs=c(0.25)),3),
+              ",",
+              round(quantile(dftmp[dftmp$Protein==protlist[i],"ExpressionLevel.y"]-
+                               dftmp[dftmp$Protein==protlist[i],"ExpressionLevel.x"],
+                             probs=c(0.75)),3),
+              ")",sep=""))
+  
+  print(wilcox.test(x=dftmp[dftmp$Protein==protlist[i],"ExpressionLevel.y"]-
+                      dftmp[dftmp$Protein==protlist[i],"ExpressionLevel.x"])$p.value)
+}
+
+
+#rehab intervention
+dftmp=rprotds_wide[!is.na(rprotds_wide$timepoint.y) & rprotds_wide$Intervention==1,]
+for (i in 1:length(protlist)){
+  print(protlist[i])
+  print(paste(round(quantile(dftmp[dftmp$Protein==protlist[i],"ExpressionLevel.y"]-
+                               dftmp[dftmp$Protein==protlist[i],"ExpressionLevel.x"],
+                             probs=c(0.5)),3),
+              "(",
+              round(quantile(dftmp[dftmp$Protein==protlist[i],"ExpressionLevel.y"]-
+                               dftmp[dftmp$Protein==protlist[i],"ExpressionLevel.x"],
+                             probs=c(0.25)),3),
+              ",",
+              round(quantile(dftmp[dftmp$Protein==protlist[i],"ExpressionLevel.y"]-
+                               dftmp[dftmp$Protein==protlist[i],"ExpressionLevel.x"],
+                             probs=c(0.75)),3),
+              ")",sep=""))
+  
+  print(wilcox.test(x=dftmp[dftmp$Protein==protlist[i],"ExpressionLevel.y"]-
+                      dftmp[dftmp$Protein==protlist[i],"ExpressionLevel.x"])$p.value)
 }
