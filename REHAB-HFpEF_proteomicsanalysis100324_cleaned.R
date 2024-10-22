@@ -9,6 +9,15 @@ library(gtsummary)
 library(reshape2)
 library(sjPlot)
 library(ggforce)
+library(gridExtra)
+library(glinternet)
+library(bartMachine)
+library(optmatch)
+library(rpart)
+library(rpart.plot)
+library(lsmeans)
+library(treeClust)
+library(pdfCluster)
 
 setwd("~/Library/CloudStorage/OneDrive-SharedLibraries-HarvardUniversity/REHAB-HFpEF Ancillary - General/REHAB-HF proteomics/REHAB-HF proteomics data")
 
@@ -52,7 +61,7 @@ hw <- theme_gray()+ theme(
 );
 
 ############################################
-## 1. Read in and initial data pre-processing ##
+## 1.1 Read in and initial data pre-processing ##
 ############################################
 
 
@@ -180,7 +189,7 @@ rprotfuds$intervention_1_control_0 <- factor(rprotfuds$intervention_1_control_0,
 # apply(rprotblds[,3:94],2,sd)
 
 ############################################
-## 2. Baseline biomarker outlier removal and final pre-processing ##
+## 1.2 Baseline biomarker outlier removal and final pre-processing ##
 ############################################
 
 ## Identify and remove outliers in baseline biomarker levels
@@ -216,9 +225,412 @@ rcombds <- merge(x=rbiods,y=rhfds,
                  by.x='subject_id',by.y='study_id',all.x=TRUE);
 
 ############################################
-## 4. Table 1 (Baseline Patient Characteristics) ##
+## 2.1 Protein EMM variable screening step 1: individual regressions ##
 ############################################
 setwd("/Users/scottbruce/Library/CloudStorage/OneDrive-SharedLibraries-HarvardUniversity/REHAB-HFpEF Ancillary - General/REHAB-HF proteomics/REHAB-HF proteomics analysis")
+
+#sppb
+intxn_df = matrix(NA,nrow=92,ncol=2)
+colnames(intxn_df) = c("effect","p-value")
+for (i in 3:94){
+  prot=names(rprotblds)[i]
+  formtmp=paste("fu_sppb ~ bl_sppb + age + sex + race___4 + hf_cat + `",prot,
+                "`*intervention_1_control_0",sep="")
+  tmpmod=summary(lm(data=rprotblds,formula=formtmp))
+  intxn_df[i-2,]=tmpmod$coefficients[nrow(tmpmod$coefficients),c(1,4)]
+}
+
+intxn_df = data.frame(Protein=names(rprotblds)[3:94],intxn_df,
+                      Significance=ifelse(intxn_df[,2]<0.05,"Significant","Not Significant"))
+summary(p.adjust(intxn_df$p.value,method='fdr'))
+#none are significant after FDR adjustment
+
+volcplot.sppb <- ggplot(data=intxn_df,mapping=aes(x=effect,y=-log10(p.value),color=Significance))+geom_point()+
+  geom_hline(yintercept = -log10(0.05), linetype="dotted")+
+  labs(x = "Effect modification", y = "-log10(p-value)") +
+  OlinkAnalyze::set_plot_theme() + ggtitle('SPPB Effect Modification (Unadjusted P-values)')+
+  ggrepel::geom_label_repel(data = intxn_df[intxn_df$Significance=="Significant",],
+                            ggplot2::aes(label = Protein), box.padding = 1, show.legend = FALSE,max.overlaps=Inf) 
+
+
+pdf("Results/SPPB_volcano_effectmod.pdf",width=7,height=6,)
+print(volcplot.sppb)
+dev.off()
+
+ggsave(volcplot.sppb,file='Results/SPPB_volcano_effectmod.eps',width=7,height=6,device="eps")
+
+
+
+#6mwd
+intxn_df = matrix(NA,nrow=92,ncol=2)
+colnames(intxn_df) = c("effect","p-value")
+for (i in 3:94){
+  prot=names(rprotblds)[i]
+  formtmp=paste("fu_smw ~ bl_smw + age + sex + race___4 + hf_cat + `",prot,
+                "`*intervention_1_control_0",sep="")
+  tmpmod=summary(lm(data=rprotblds,formula=formtmp))
+  intxn_df[i-2,]=tmpmod$coefficients[nrow(tmpmod$coefficients),c(1,4)]
+}
+
+intxn_df = data.frame(Protein=names(rprotblds)[3:94],intxn_df,
+                      Significance=ifelse(intxn_df[,2]<0.05,"Significant","Not Significant"))
+summary(p.adjust(intxn_df$p.value,method='fdr'))
+#none are significant after FDR adjustment
+
+volcplot.6mwd <- ggplot(data=intxn_df,mapping=aes(x=effect,y=-log10(p.value),color=Significance))+geom_point()+
+  geom_hline(yintercept = -log10(0.05), linetype="dotted")+
+  labs(x = "Effect modification", y = "-log10(p-value)") +
+  OlinkAnalyze::set_plot_theme() + ggtitle('6 Minute Walk Effect Modification (Unadjusted P-values)')+
+  ggrepel::geom_label_repel(data = intxn_df[intxn_df$Significance=="Significant",],
+                            ggplot2::aes(label = Protein), box.padding = 1, show.legend = FALSE,max.overlaps=Inf) 
+
+pdf("Results/6MWD_volcano_effectmod.pdf",width=7,height=6,)
+print(volcplot.6mwd)
+dev.off()
+
+ggsave(volcplot.6mwd,file='Results/6MWD_volcano_effectmod.eps',width=7,height=6,device="eps")
+
+############################################
+## 2.2 Protein EMM variable screening step 2: LASSO regression with glinternet interaction screening ##
+############################################
+#sppb
+sppb_data <- cbind(rprotblds[,c("fu_sppb","intervention_1_control_0","bl_sppb","age","sex","race___4","hf_cat")],
+                   rprotblds[,3:94])
+
+#remove incomplete cases (any rows with missingness, mostly due to lack of follow up)
+sppb_data = na.omit(sppb_data);
+
+# ##using glmnet doesn't enforce strong hierarchy
+# f <- as.formula(fu_sppb ~ .+intervention_1_control_0*.)
+# sppb_y <- sppb_data$fu_sppb
+# sppb_x <- model.matrix(f, sppb_data)[, -1]
+# 
+# fit <- glmnet(sppb_x, sppb_y)
+# plot(fit)
+
+##using glinternet, which does enforce strong hierarchy
+set.seed(23)
+sppb_y <- sppb_data$fu_sppb
+#reformat factors as 0/1 vars
+sppb_x <- data.frame(intervention_1_control_0=as.numeric(sppb_data$intervention_1_control_0)-1,
+                     sppb_data$bl_sppb,sppb_data$age,
+                     sex=as.numeric(sppb_data$sex)-1,
+                     race___4=as.numeric(sppb_data$race___4)-1,
+                     hf_cat=as.numeric(sppb_data$hf_cat)-1,
+                     sppb_data[,8:99])
+#number of levels for each independent var (1 for continuous vars)
+numLevels <- c(2,1,1,2,2,2,rep(1,92))
+fit <- glinternet(sppb_x,sppb_y,numLevels=numLevels,
+                  interactionCandidates = 1)
+coeffs <- coef(fit)
+
+fit <- glinternet.cv(sppb_x,sppb_y,numLevels=numLevels,
+                     interactionCandidates = 1)
+
+#looking through results
+# plot(fit)
+# fit$lambdaHat #0.01029845
+# fit$lambdaHat1Std #0.07411649
+# fit$activeSet #variables selected using lambdaHat above
+# fit$betahat
+# fit$family
+# coeffs=coef(fit)
+# coeffs$mainEffects
+# coeffs$interactions
+#categorical variables
+#1: intervention vs control
+#2: sex
+#3: race
+#4: hf_cat
+
+#continuous variables
+#1: bl_sppb
+#2: age
+#3-94: proteins
+
+#proteins with treatment effect interactions selected
+names(sppb_data[,8:99])[coeffs$interactions$catcont[,2]-2]
+# [1] "LDL receptor"  "ALCAM"         "BLM hydrolase" "SPON1"        
+# [5] "CXCL16"        "GP6"           "CCL16"        
+
+coeffs$interactionsCoef
+#give you estimates of the deviation from the main effect slope for control vs treatment
+
+names(sppb_data[,8:99])[coeffs$mainEffects$cont[c(-1,-2)]-2]
+unlist(coeffs$mainEffectsCoef$cont)[c(-1,-2)]
+
+# #fit a model
+# summary(lm(formula=fu_sppb ~ intervention_1_control_0+hf_cat+
+#              bl_sppb+`BLM hydrolase`+`TIMP4`+`TLT-2`+`TR`+SELE+MPO+`IGFBP-1`+
+#              PI3+`AP-N`+TNFSF13B+PCSK9+`U-PAR`+`SHPS-1`+CCL15+`CASP-3`+CPB1+
+#              CHI3L1+ST2+SCGB3A2+PON3+CTSZ+`LDL receptor`+ALCAM+SPON1+CXCL16+       
+#              +GP6+CCL16+
+#              `LDL receptor`:intervention_1_control_0+ALCAM:intervention_1_control_0+
+#              `BLM hydrolase`:intervention_1_control_0+SPON1:intervention_1_control_0+        
+#              `CXCL16`:intervention_1_control_0+GP6:intervention_1_control_0+
+#              `CCL16`:intervention_1_control_0        
+#            ,data=rprotblds))
+
+#fit models considering lambda values between fit$lambdaHat (0.01029845) and fit$lambdaHat1Std (0.07411649)
+#find the model that is a bit more parismonious than the one at lambdaHat by increasing lambda slightly
+#to reduce the model size
+fit.step.sppb <- glinternet(sppb_x,sppb_y,numLevels=numLevels,lambda=fit$lambda[7:28],
+                            interactionCandidates = 1)
+
+lapply(coef(fit.step.sppb),function(x) names(sppb_data[,8:99])[x$interactions$catcont[,2]-2])
+lapply(coef(fit.step.sppb),function(x) names(sppb_data[,8:99])[x$interactions$catcont[,2]-2])[[17]]
+#[1] "LDL receptor" "ALCAM"        "GP6"          "CCL16"  
+fit.step.sppb$lambda[17]
+#0.01647607
+
+#lambda slightly higher than lambdaHat, but returns 4 EMMS vs. 7
+
+#6mwd
+smw_data <- cbind(rprotblds[,c("fu_smw","intervention_1_control_0","bl_smw","age","sex","race___4","hf_cat")],
+                  rprotblds[,3:94])
+
+#remove incomplete cases (any rows with missingness, mostly due to lack of follow up)
+smw_data = na.omit(smw_data);
+
+# ##using glmnet, but unfortunately this doesn't enforce strong hierarchy
+# f <- as.formula(fu_smw ~ .+intervention_1_control_0*.)
+# smw_y <- smw_data$fu_smw
+# smw_x <- model.matrix(f, smw_data)[, -1]
+# 
+# fit <- glmnet(smw_x, smw_y)
+# plot(fit)
+
+##using glinternet, which does enforce strong hierarchy
+set.seed(34)
+smw_y <- smw_data$fu_smw
+#reformat factors as 0/1 vars
+smw_x <- data.frame(intervention_1_control_0=as.numeric(smw_data$intervention_1_control_0)-1,
+                    smw_data$bl_smw,smw_data$age,
+                    sex=as.numeric(smw_data$sex)-1,
+                    race___4=as.numeric(smw_data$race___4)-1,
+                    hf_cat=as.numeric(smw_data$hf_cat)-1,
+                    smw_data[,8:99])
+#number of levels for each independent var (1 for continuous vars)
+numLevels <- c(2,1,1,2,2,2,rep(1,92))
+fit <- glinternet(smw_x,smw_y,numLevels=numLevels,
+                  interactionCandidates = 1)
+coeffs = coef(fit)
+
+fit <- glinternet.cv(smw_x,smw_y,numLevels=numLevels,
+                     interactionCandidates = 1)
+
+#looking through results
+# plot(fit)
+# fit$lambdaHat #0.375042
+# fit$lambdaHat1Std #6.288827
+# fit$activeSet #variables selected using lambdaHat above
+# fit$betahat
+# fit$family
+# coeffs=coef(fit)
+# coeffs$mainEffects
+# coeffs$interactions
+#categorical variables
+#1: intervention vs control
+#2: sex
+#3: race
+#4: hf_cat
+
+#continuous variables
+#1: bl_smw
+#2: age
+#3-94: proteins
+
+#proteins with treatment effect interactions selected
+names(smw_data[,8:99])[coeffs$interactions$catcont[,2]-2]
+# [1] "LDL receptor"   "ALCAM"          "SELP"           "FABP4"          "CHIT1"         
+# [6] "Ep-CAM"         "Gal-4"          "t-PA"           "PDGF subunit A"
+
+coeffs$interactionsCoef
+#give you estimates of the deviation from the main effect slope for control vs treatment
+
+names(smw_data[,8:99])[coeffs$mainEffects$cont[c(-1,-2)]-2]
+unlist(coeffs$mainEffectsCoef$cont)[c(-1,-2)]
+
+#fit a model
+# summary(lm(formula=fu_smw ~ intervention_1_control_0+
+#              bl_smw+age+`LDL receptor`+`IL-17RA`+`IL2-RA`+`Gal-3`+`BLM hydrolase`+`Notch 3`+`DLK-1`+
+#              CXCL16+`IL-6RA`+GP6+`PSP-D`+`PI3`+`AP-N`+`MMP-2`+`TNFSF13B`+PRTN3+
+#              `SHPS-1`+uPA+CHI3L1+SCGB3A2+COL1A1+`vWF`+ALCAM+SELP+FABP4+CHIT1+`Ep-CAM`+`Gal-4`    
+#            +`t-PA`+`PDGF subunit A`+
+#              `LDL receptor`:intervention_1_control_0+ALCAM:intervention_1_control_0+
+#              SELP:intervention_1_control_0+FABP4:intervention_1_control_0+        
+#              CHIT1:intervention_1_control_0+`Ep-CAM`:intervention_1_control_0+
+#              `Gal-4`:intervention_1_control_0 +`t-PA`:intervention_1_control_0+
+#              `PDGF subunit A`:intervention_1_control_0
+#            ,data=rprotblds))
+
+#fit models considering lambda values between fit$lambdaHat (0.375042) and fit$lambdaHat1Std (6.288827)
+#find the model that is a bit more parismonious than the one at lambdaHat by increasing lambda slightly
+#to reduce the model size
+fit.step <- glinternet(smw_x,smw_y,numLevels=numLevels,lambda=fit$lambda[2:32],
+                       interactionCandidates = 1)
+
+lapply(coef(fit.step),function(x) names(smw_data[,8:99])[x$interactions$catcont[,2]-2])
+lapply(coef(fit.step),function(x) names(smw_data[,8:99])[x$interactions$catcont[,2]-2])[[23]]
+#[1] "LDL receptor" "ALCAM"        "PLC"          "CHIT1"        "Gal-4" 
+fit.step$lambda[23]
+#0.7954456
+
+#lambda slightly higher than lambdaHat, but returns 5 EMMS vs. 9
+
+############################################
+## 2.3 Protein EMM variable screening step 3: BART with interaction importance ##
+############################################
+
+set.seed(45)
+options(java.parameters = "-Xmx4000m")
+set_bart_machine_num_cores(1)
+
+
+#model fit
+sppb_data <- cbind(rprotblds[,c("fu_sppb","intervention_1_control_0","bl_sppb","age","sex","race___4","hf_cat")],
+                   rprotblds[,3:94])
+
+#remove incomplete cases (any rows with missingness, mostly due to lack of follow up)
+sppb_data = na.omit(sppb_data);
+
+sppb_y <- sppb_data$fu_sppb
+sppb_x <- data.frame(sppb_data$intervention_1_control_0,
+                     sppb_data$bl_sppb,sppb_data$age,
+                     sppb_data$sex,
+                     sppb_data$race___4,
+                     sppb_data$hf_cat,
+                     sppb_data[,8:99])
+
+bart_machine_sppb <- bartMachine(sppb_x, sppb_y,
+                                 num_trees=100,
+                                 num_burn_in=500,
+                                 num_iterations_after_burn_in=2000,
+                                 use_missing_data=TRUE,
+                                 mem_cache_for_speed = FALSE,
+                                 seed=34)
+bart_machine_sppb
+pdf("Results/bart_sppb_ConvergenceDiagnostics.pdf", onefile = TRUE)
+plot_convergence_diagnostics(bart_machine_sppb)
+dev.off()
+
+#if doesn't work, run install.packages('bartMachine') to update package I guess?
+reps=100
+intxninvest=interaction_investigator(bart_machine_sppb, 
+                                     plot=FALSE,
+                                     num_var_plot=25,
+                                     bottom_margin=20,
+                                     num_replicates_for_avg=reps,
+                                     num_trees_bottleneck=20)
+
+#average count of interactions between protein and treatment/control
+sort(rowSums(intxninvest$interaction_counts_avg[3:94,95:96]),decreasing=TRUE)
+
+#mean and sd of interaction counts
+cbind(intxninvest$interaction_counts_avg[3:94,95:96],
+      1.96*intxninvest$interaction_counts_sd[3:94,95:96]/sqrt(reps))
+
+#sum of count of interactions
+bartintxn_means=apply(intxninvest$interaction_counts[3:94,95:96,],1,sum)/reps
+bartintxn_sds=apply(apply(intxninvest$interaction_counts[3:94,95:96,],c(1,3),sum),1,sd)
+bartintxn_moe=1.96 * bartintxn_sds / sqrt(reps)
+bartintxn_df=data.frame(Protein=rownames(intxninvest$interaction_counts_avg)[3:94],
+                        Importance=bartintxn_means,MOE=bartintxn_moe)
+bartintxn_df = bartintxn_df[order(bartintxn_df$Importance,decreasing=TRUE),]
+#top 20 only
+bartintxn_df=bartintxn_df[1:20,]
+pdf("Results/InteractionImportance_sppb.pdf", onefile = TRUE)
+par(mar = c(7, 6, 3, 0))
+bars = barplot(bartintxn_df$Importance, 
+               names.arg = bartintxn_df$Protein, 
+               las = 2, 
+               ylab = "Importance", 
+               col = "gray",
+               ylim = c(0, max(bartintxn_df$Importance + bartintxn_df$MOE))
+)
+conf_upper = bartintxn_df$Importance + bartintxn_df$MOE
+conf_lower = bartintxn_df$Importance - bartintxn_df$MOE
+segments(bars, bartintxn_df$Importance, bars, conf_upper, col = rgb(0.59, 0.39, 0.39), lwd = 3) # Draw error bars
+segments(bars, bartintxn_df$Importance, bars, conf_lower, col = rgb(0.59, 0.39, 0.39), lwd = 3)
+dev.off()
+
+
+
+
+
+set.seed(231)
+options(java.parameters = "-Xmx4000m")
+set_bart_machine_num_cores(1)
+
+
+#model fit
+smw_data <- cbind(rprotblds[,c("fu_smw","intervention_1_control_0","bl_smw","age","sex","race___4","hf_cat")],
+                  rprotblds[,3:94])
+
+#remove incomplete cases (any rows with missingness, mostly due to lack of follow up)
+smw_data = na.omit(smw_data);
+
+smw_y <- smw_data$fu_smw
+smw_x <- data.frame(smw_data$intervention_1_control_0,
+                    smw_data$bl_smw,smw_data$age,
+                    smw_data$sex,
+                    smw_data$race___4,
+                    smw_data$hf_cat,
+                    smw_data[,8:99])
+
+bart_machine_smw <- bartMachine(smw_x, smw_y,
+                                num_trees=100,
+                                num_burn_in=2000,
+                                num_iterations_after_burn_in=2000,
+                                use_missing_data=TRUE,
+                                mem_cache_for_speed = FALSE,
+                                seed=231)
+bart_machine_smw
+pdf("Results/bart_smw_ConvergenceDiagnostics.pdf", onefile = TRUE)
+plot_convergence_diagnostics(bart_machine_smw)
+dev.off()
+
+reps=100
+intxninvest=interaction_investigator(bart_machine_smw, 
+                                     num_var_plot=25,
+                                     bottom_margin=20,
+                                     num_replicates_for_avg=reps,
+                                     num_trees_bottleneck=20)
+
+#average count of interactions between protein and treatment/control
+sort(rowSums(intxninvest$interaction_counts_avg[3:94,95:96]),decreasing=TRUE)
+
+#mean and sd of interaction counts
+cbind(intxninvest$interaction_counts_avg[3:94,95:96],
+      1.96*intxninvest$interaction_counts_sd[3:94,95:96]/sqrt(reps))
+
+#sum of count of interactions
+bartintxn_means=apply(intxninvest$interaction_counts[3:94,95:96,],1,sum)/reps
+bartintxn_sds=apply(apply(intxninvest$interaction_counts[3:94,95:96,],c(1,3),sum),1,sd)
+bartintxn_moe=1.96 * bartintxn_sds / sqrt(reps)
+bartintxn_df=data.frame(Protein=rownames(intxninvest$interaction_counts_avg)[3:94],
+                        Importance=bartintxn_means,MOE=bartintxn_moe)
+bartintxn_df = bartintxn_df[order(bartintxn_df$Importance,decreasing=TRUE),]
+#top 20 only
+bartintxn_df=bartintxn_df[1:20,]
+pdf("Results/InteractionImportance_6MWD.pdf", onefile = TRUE)
+par(mar = c(7, 6, 3, 0))
+bars = barplot(bartintxn_df$Importance, 
+               names.arg = bartintxn_df$Protein, 
+               las = 2, 
+               ylab = "Importance", 
+               col = "gray",
+               ylim = c(0, max(bartintxn_df$Importance + bartintxn_df$MOE))
+)
+conf_upper = bartintxn_df$Importance + bartintxn_df$MOE
+conf_lower = bartintxn_df$Importance - bartintxn_df$MOE
+segments(bars, bartintxn_df$Importance, bars, conf_upper, col = rgb(0.59, 0.39, 0.39), lwd = 3) # Draw error bars
+segments(bars, bartintxn_df$Importance, bars, conf_lower, col = rgb(0.59, 0.39, 0.39), lwd = 3)
+dev.off()
+
+############################################
+## 3. Table 1 (Baseline Patient Characteristics) ##
+############################################
 
 #LASSO selected vars for 6MWD
 # [1] "LDL receptor"   "ALCAM"          "PLC"         "CHIT1"     "Gal-4"         
@@ -261,7 +673,7 @@ tbl_summary(rprotblds[,varlist],
   gtsave(filename = "Results/Table1_Baselinecharacteristics.html")
 
 ############################################
-## 5. Supplemental Figure 2 - Spearman correlation of baseline proteins ##
+## 4. Supplemental Figure 2 - Spearman correlation of baseline proteins ##
 ############################################
 scmat <- round(cor(rprotblds[,which(colnames(rprotblds) %in% protlist)],
     method="spearman",use="pairwise.complete.obs"),2)
@@ -309,7 +721,7 @@ dev.off()
 ggsave(ggheatmap,file='Results/SuppFigure2_SpearmanCorrelation.eps',width=5,height=5,device="eps")
 
 ############################################
-## 6. Table 2 (Linear Regression Results) ##
+## 5. Table 2 (Linear Regression Results) ##
 ############################################
 #tabmodel won't print out interaction effects for variables with special characters in name, so rename
 #columns to remove special characters
@@ -349,7 +761,7 @@ for (i in 1:length(protlist)){
 }  
 
 ############################################
-## 7. Figures 1 and 2 (Linear Regression Results) ##
+## 6. Figures 1 and 2 (Linear Regression Results) ##
 ############################################
 
 #create long form dataset
@@ -411,7 +823,7 @@ dev.off()
 ggsave(fig2,file='Results/Figure2_Changein6MWD.eps',width=6,height=3,device="eps")
 
 ############################################
-## 8. Supplemental Table 1 compare those with biomarkers vs. unmeasured ## - DO WE NEED THIS BLOCK?  I DON'T THINK SO
+## 7. Supplemental Table 1 compare those with biomarkers vs. unmeasured ## - DO WE NEED THIS BLOCK?  I DON'T THINK SO
 ############################################
 # #supplemental table 1: comparing those with baseline biomarkers measured vs. no baseline biomarkers
 # rhfds$bm_measured = (rhfds$study_id %in% 
@@ -441,7 +853,7 @@ ggsave(fig2,file='Results/Figure2_Changein6MWD.eps',width=6,height=3,device="eps
 #   gtsave(filename = "SuppTable1_measuredvsunmeasured.html")
 
 ############################################
-## 9. Supplemental Table 3 - secondary outcomes  ##
+## 8. Supplemental Table 3 - secondary outcomes  ##
 ############################################
 
 tbl_summary(rprotblds[,
@@ -467,7 +879,7 @@ tbl_summary(rprotblds[,
   gtsave(filename = "Results/SuppTable3_Secondaryoutcomes.html")
 
 ############################################
-## 10. Supplemental Table 4 (Regression Results - Secondary Outcomes) ##
+## 9. Supplemental Table 4 (Regression Results - Secondary Outcomes) ##
 ############################################
 #tabmodel won't print out interaction effects for variables with special characters in name, so rename
 #columns to remove special characters
@@ -523,14 +935,14 @@ for (i in 1:length(protlist)){
 }  
 
 ############################################
-## 11. Propensity matching UPDATE FROM HERE ##
+## 10. Propensity matching  ##
 ############################################
 
-ps.df=rcombds[rcombds$timepoint=="Baseline",]
-ps.df$trt=as.numeric(ps.df$intervention_1_control_0)
-ps.df=ps.df[complete.cases(ps.df[,c("creatinine_mg_dl",'troponin_i_pg_ml',
-                                    'hs_crp_mg_l','nt_pro_bnp','troponin_t_ng_l','bl_smw','fu_smw')]),]
-nrow(ps.df) #165 complete cases
+ps.df=rprotblds
+ps.df$trt=as.numeric(ps.df$intervention_1_control_0)-1
+ps.df=ps.df[complete.cases(ps.df[,c("LDL receptor","ALCAM","PLC","CHIT1","Gal-4",
+                                    "GP6","CCL16","ST2",
+                                    'bl_smw','fu_smw')]),]
 
 #propensity score for treatment assignment
 ppty=glm(trt~age+sex+race___4+hf_cat
@@ -539,51 +951,8 @@ prop.score=predict.glm(ppty,type="response",na.action=na.exclude)
 ps.df=as.data.frame(cbind(ps.df,prop.score))
 ppty.distance=match_on(ppty)
 
-set.trt=ps.df[ps.df[, "trt"] == 1,]
-set.cont=ps.df[ps.df[,"trt"]==0,]
-match.set=c()
-calp.sd=1
-for (i in 1:dim(set.trt)[1]){
-  pair.set1=c()
-  var.select1=ifelse(abs(log2(set.cont$creatinine_mg_dl)-
-                           log2(set.trt$creatinine_mg_dl[i]))<
-                       calp.sd*sd(log2(set.trt$creatinine_mg_dl)),1,0)
-  var.select2=ifelse(abs(log2(set.cont$troponin_i_pg_ml)-
-                           log2(set.trt$troponin_i_pg_ml[i]))<
-                       calp.sd*sd(log2(set.trt$troponin_i_pg_ml)),1,0)
-  var.select3=ifelse(abs(log2(set.cont$troponin_t_ng_l)-
-                           log2(set.trt$troponin_t_ng_l[i]))<
-                       calp.sd*sd(log2(set.trt$troponin_t_ng_l)),1,0)
-  var.select4=ifelse(abs(log2(set.cont$nt_pro_bnp)-
-                           log2(set.trt$nt_pro_bnp[i]))<
-                       calp.sd*sd(log2(set.trt$nt_pro_bnp)),1,0)
-  var.select5=ifelse(abs(log2(set.cont$hs_crp_mg_l)-
-                           log2(set.trt$hs_crp_mg_l[i]))<
-                       calp.sd*sd(log2(set.trt$hs_crp_mg_l)),1,0)
-  var.selectf=ifelse(var.select1+var.select2+var.select3+
-                       var.select4+var.select5==5,1,0)
-  id=c(1:length(var.select1))
-  lenset.cont2=as.data.frame(cbind(
-    id,set.cont,var.selectf))
-  lenset.cont3=lenset.cont2[lenset.cont2[,"var.selectf"]==1,]
-  if (dim(lenset.cont3)[1]>0){
-    cont.index=which.min(abs(lenset.cont3$prop.score-set.trt$prop.score[i]))
-    pair.set=rbind(set.trt[i,],
-                   lenset.cont3[cont.index,c(-1,-dim(lenset.cont3)[2])])
-    pairin=rep(i,2)
-    pair.set1=cbind(pair.set,pairin)
-    set.cont = set.cont[!set.cont$prop.score == 
-                          lenset.cont3$prop.score[cont.index],]
-  } else {
-    pair.set1=c()
-    set.cont = set.cont
-  }
-  match.set=rbind(match.set,pair.set1)
-}
-
-
 ######################
-## 12. Matching Tree Functions
+## 11. Matching Tree Functions
 ######################
 
 #tree pruning and selection functions from Matching Tree paper (Zhang et al., 2021)
@@ -635,10 +1004,201 @@ jesse.tree.select=function(input,set1.caliper.tree){
   }
 }
 
+######################
+## 12. 6MWD Matching Tree
+######################
+
+#match on 6MWD vars
+# [1] "LDL receptor"   "ALCAM"          "PLC"         "CHIT1"     "Gal-4"         
+
+set.trt=ps.df[ps.df[, "trt"] == 1,]
+set.cont=ps.df[ps.df[,"trt"]==0,]
+match.set=c()
+calp.sd=1
+for (i in 1:dim(set.trt)[1]){
+  pair.set1=c()
+  var.select1=ifelse(abs(set.cont$`LDL receptor`-
+                           set.trt$`LDL receptor`[i])<
+                       calp.sd*sd(set.trt$`LDL receptor`),1,0)
+  var.select2=ifelse(abs(set.cont$ALCAM-
+                           set.trt$ALCAM[i])<
+                       calp.sd*sd(set.trt$ALCAM),1,0)
+  var.select3=ifelse(abs(set.cont$PLC-
+                           set.trt$PLC[i])<
+                       calp.sd*sd(set.trt$PLC),1,0)
+  var.select4=ifelse(abs(set.cont$CHIT1-
+                           set.trt$CHIT1[i])<
+                       calp.sd*sd(set.trt$CHIT1),1,0)
+  var.select5=ifelse(abs(set.cont$`Gal-4`-
+                           set.trt$`Gal-4`[i])<
+                       calp.sd*sd(set.trt$`Gal-4`),1,0)
+  var.selectf=ifelse(var.select1+var.select2+var.select3+
+                       var.select4+var.select5==5,1,0)
+  id=c(1:length(var.select1))
+  lenset.cont2=as.data.frame(cbind(
+    id,set.cont,var.selectf))
+  lenset.cont3=lenset.cont2[lenset.cont2[,"var.selectf"]==1,]
+  if (dim(lenset.cont3)[1]>0){
+    cont.index=which.min(abs(lenset.cont3$prop.score-set.trt$prop.score[i]))
+    pair.set=rbind(set.trt[i,],
+                   lenset.cont3[cont.index,c(-1,-dim(lenset.cont3)[2])])
+    pairin=rep(i,2)
+    pair.set1=cbind(pair.set,pairin)
+    set.cont = set.cont[!set.cont$prop.score == 
+                          lenset.cont3$prop.score[cont.index],]
+  } else {
+    pair.set1=c()
+    set.cont = set.cont
+  }
+  match.set=rbind(match.set,pair.set1)
+}
+
+#calculate the difference between treated and control
+treat.set=match.set[match.set[,"trt"]==1,]
+control.set=match.set[match.set[,"trt"]==0,]
+outcome.diff=(treat.set$fu_smw-treat.set$bl_smw)-
+  (control.set$fu_smw-control.set$bl_smw)
+set.total=as.data.frame(rbind(cbind(treat.set,outcome.diff),cbind(control.set,outcome.diff)))
+
+#build matching tree using all data
+tree.rpart=rpart(outcome.diff~`LDL receptor`+ALCAM+PLC+CHIT1+`Gal-4`
+                 # +age+sex+race___4+hf_cat
+                 ,method="anova",data=set.total,
+                 control=rpart.control(minbucket = 20))
+#this is the result after prune
+set.total$outcome = set.total$fu_smw - set.total$bl_smw
+tree.all=jesse.tree.select(tree.rpart,set.total)
+
+pdf("Results/Figure3b_Matchingtree_6MWD.pdf")
+rpart.plot(tree.all,box.palette = 'Reds',extra=1)
+dev.off()
+setEPS()
+postscript("Results/Figure3b_Matchingtree_6MWD.eps")
+rpart.plot(tree.all,box.palette = 'Reds',extra=1)
+dev.off()
+
+#get confidence intervals
+set.total$smw_node=rpart.predict.leaves(tree.all,set.total,type="where")
+modscore.smw=lm(data=set.total,formula= outcome.diff~0+as.factor(smw_node))
+confint(modscore.smw)
+# 2.5 %   97.5 %
+#   as.factor(smw_node)3 -53.26891 13.49727
+# as.factor(smw_node)4 -11.20765 51.84635
+# as.factor(smw_node)5  48.75768 99.11928
+
+summary(modscore.smw)
+# Call:
+#   lm(formula = outcome.diff ~ 0 + as.factor(smw_node), data = set.total)
+# 
+# Residuals:
+#   Min      1Q  Median      3Q     Max 
+# -322.03  -53.61   14.66   59.63  223.86 
+# 
+# Coefficients:
+#   Estimate Std. Error t value Pr(>|t|)    
+# as.factor(smw_node)3   -19.89      16.87  -1.179    0.241    
+# as.factor(smw_node)4    20.32      15.93   1.276    0.204    
+# as.factor(smw_node)5    73.94      12.72   5.811 4.85e-08 ***
+#   ---
+#   Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+# 
+# Residual standard error: 96.9 on 125 degrees of freedom
+# Multiple R-squared:  0.2274,	Adjusted R-squared:  0.2088 
+# F-statistic: 12.26 on 3 and 125 DF,  p-value: 4.368e-07
+
+#Leave one out stability analysis
+set.seed(324)
+folds <- cut(seq(1,nrow(treat.set)),breaks=nrow(treat.set),labels=FALSE)
+#shuffle folds
+folds<- folds[sample(nrow(treat.set))]
+
+#store trees and subpops
+tree.2=list()
+tree.plot=list()
+tree.leaves=list()
+tree.mod.train=list()
+tree.mod.test=list()
+for (i in 1:max(folds)){
+  
+  #identify pairs in the train
+  ids <- treat.set$subject_id[folds != i]
+  pairs.train <- set.total$pairin[set.total$subject_id %in% ids]
+  
+  #this is the result from CART (update with different rpart.control params)
+  tmp=rpart(outcome.diff~`LDL receptor`+ALCAM+PLC+CHIT1+`Gal-4`
+            # +age+sex+race___4+hf_cat
+            ,method="anova",data=set.total[set.total$pairin %in% pairs.train,],
+            control=rpart.control(minbucket = 20))
+  
+  #this is the result after prune
+  set.total$outcome = set.total$fu_smw - set.total$bl_smw
+  tree.2[[i]]=jesse.tree.select(tmp,set.total)
+  tree.plot[[i]]=rpart.plot(tree.2[[i]],box.palette = 'Reds',extra=1)
+  
+  #numbers are average outcome diff
+  #get leaves for all observations
+  tree.leaves[[i]]=rpart.predict.leaves(tree.2[[i]],set.total,type="where")
+  
+  df=cbind(set.total,tree.leaves[[i]])
+  colnames(df)
+  tree.mod.train[[i]]=summary(lm(outcome.diff ~ 0 + as.factor(`tree.leaves[[i]]`), data=df[df$pairin %in% pairs.train,]))
+  
+}
+
+pdf("Results/Matchingtree_6MWD_LOO.pdf", onefile = TRUE)
+for (i in 1:length(tree.2)) {
+  rpart.plot(tree.2[[i]],box.palette = 'Reds',extra=1)
+}
+dev.off()
 
 ######################
 ## 13. SPPB Matching Tree
 ######################
+
+#match on sppb vars
+# [1] "LDL receptor" "ALCAM"        "GP6"          "CCL16"   "ST2"     
+
+set.trt=ps.df[ps.df[, "trt"] == 1,]
+set.cont=ps.df[ps.df[,"trt"]==0,]
+match.set=c()
+calp.sd=1
+for (i in 1:dim(set.trt)[1]){
+  pair.set1=c()
+  var.select1=ifelse(abs(set.cont$`LDL receptor`-
+                           set.trt$`LDL receptor`[i])<
+                       calp.sd*sd(set.trt$`LDL receptor`),1,0)
+  var.select2=ifelse(abs(set.cont$ALCAM-
+                           set.trt$ALCAM[i])<
+                       calp.sd*sd(set.trt$ALCAM),1,0)
+  var.select3=ifelse(abs(set.cont$GP6-
+                           set.trt$GP6[i])<
+                       calp.sd*sd(set.trt$GP6),1,0)
+  var.select4=ifelse(abs(set.cont$CCL16-
+                           set.trt$CCL16[i])<
+                       calp.sd*sd(set.trt$CCL16),1,0)
+  var.select5=ifelse(abs(set.cont$`ST2`-
+                           set.trt$`ST2`[i])<
+                       calp.sd*sd(set.trt$`ST2`),1,0)
+  var.selectf=ifelse(var.select1+var.select2+var.select3+
+                       var.select4+var.select5==5,1,0)
+  id=c(1:length(var.select1))
+  lenset.cont2=as.data.frame(cbind(
+    id,set.cont,var.selectf))
+  lenset.cont3=lenset.cont2[lenset.cont2[,"var.selectf"]==1,]
+  if (dim(lenset.cont3)[1]>0){
+    cont.index=which.min(abs(lenset.cont3$prop.score-set.trt$prop.score[i]))
+    pair.set=rbind(set.trt[i,],
+                   lenset.cont3[cont.index,c(-1,-dim(lenset.cont3)[2])])
+    pairin=rep(i,2)
+    pair.set1=cbind(pair.set,pairin)
+    set.cont = set.cont[!set.cont$prop.score == 
+                          lenset.cont3$prop.score[cont.index],]
+  } else {
+    pair.set1=c()
+    set.cont = set.cont
+  }
+  match.set=rbind(match.set,pair.set1)
+}
 
 #calculate the difference between treated and control
 treat.set=match.set[match.set[,"trt"]==1,]
@@ -648,18 +1208,19 @@ outcome.diff=(treat.set$fu_sppb-treat.set$bl_sppb)-
 set.total=as.data.frame(rbind(cbind(treat.set,outcome.diff),cbind(control.set,outcome.diff)))
 
 #build matching tree using all data
-tree.rpart=rpart(outcome.diff~creatinine_mg_dl+troponin_i_pg_ml+hs_crp_mg_l+
-                   nt_pro_bnp+troponin_t_ng_l ,method="anova",data=set.total,
+tree.rpart=rpart(outcome.diff~`LDL receptor`+ALCAM+GP6+CCL16+ST2
+                 # +age+sex+race___4+hf_cat
+                 ,method="anova",data=set.total,
                  control=rpart.control(minbucket = 20))
 #this is the result after prune
-set.total$outcome = set.total$fu_smw - set.total$bl_smw
+set.total$outcome = set.total$fu_sppb - set.total$bl_sppb
 tree.all=jesse.tree.select(tree.rpart,set.total)
 
-pdf("Figure3a_Matchingtree_SPPB.pdf")
+pdf("Results/Figure3a_Matchingtree_SPPB.pdf")
 rpart.plot(tree.all,box.palette = 'Reds',extra=1)
 dev.off()
 setEPS()
-postscript("Figure3a_Matchingtree_SPPB.eps")
+postscript("Results/Figure3a_Matchingtree_SPPB.eps")
 rpart.plot(tree.all,box.palette = 'Reds',extra=1)
 dev.off()
 
@@ -667,10 +1228,9 @@ dev.off()
 set.total$sppb_node=rpart.predict.leaves(tree.all,set.total,type="where")
 modscore.sppb=lm(data=set.total,formula= outcome.diff~0+as.factor(sppb_node))
 confint(modscore.sppb)
-# 2.5 %   97.5 %
-# as.factor(sppb_node)2 0.1271625 1.551409
-# as.factor(sppb_node)4 0.5409918 2.763356
-# as.factor(sppb_node)5 2.0441062 3.750766
+# 2.5 %    97.5 %
+#   as.factor(sppb_node)2 -1.475802 0.5424683
+# as.factor(sppb_node)3  1.572931 2.7381799
 
 summary(modscore.sppb)
 # Call:
@@ -678,19 +1238,18 @@ summary(modscore.sppb)
 # 
 # Residuals:
 #   Min      1Q  Median      3Q     Max 
-# -5.6522 -1.8393 -0.8393  2.1026  7.1607 
+# -5.1556 -2.1556 -0.1556  1.5611  6.8444 
 # 
 # Coefficients:
 #   Estimate Std. Error t value Pr(>|t|)    
-# as.factor(sppb_node)2   0.8393     0.3595   2.335  0.02130 *  
-#   as.factor(sppb_node)4   1.6522     0.5610   2.945  0.00391 ** 
-#   as.factor(sppb_node)5   2.8974     0.4308   6.726 7.13e-10 ***
+# as.factor(sppb_node)2  -0.4667     0.5096  -0.916    0.362    
+# as.factor(sppb_node)3   2.1556     0.2942   7.326 3.18e-11 ***
 #   ---
 #   Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
 # 
-# Residual standard error: 2.69 on 115 degrees of freedom
-# Multiple R-squared:  0.3404,	Adjusted R-squared:  0.3232 
-# F-statistic: 19.79 on 3 and 115 DF,  p-value: 2.066e-10
+# Residual standard error: 2.791 on 118 degrees of freedom
+# Multiple R-squared:  0.316,	Adjusted R-squared:  0.3044 
+# F-statistic: 27.26 on 2 and 118 DF,  p-value: 1.854e-10
 
 #Leave one out stability analysis
 set.seed(67)
@@ -711,13 +1270,13 @@ for (i in 1:max(folds)){
   pairs.train <- set.total$pairin[set.total$subject_id %in% ids]
   
   #this is the result from CART (update with different rpart.control params)
-  tmp=rpart(outcome.diff~creatinine_mg_dl+troponin_i_pg_ml+hs_crp_mg_l+
-                     nt_pro_bnp+troponin_t_ng_l,
-                   method="anova",data=set.total[set.total$pairin %in% pairs.train,],
+  tmp=rpart(outcome.diff~`LDL receptor`+ALCAM+GP6+CCL16+ST2
+            # +age+sex+race___4+hf_cat
+                   ,method="anova",data=set.total[set.total$pairin %in% pairs.train,],
                    control=rpart.control(minbucket = 20))
 
   #this is the result after prune
-  set.total$outcome = set.total$fu_smw - set.total$bl_smw
+  set.total$outcome = set.total$fu_sppb - set.total$bl_sppb
   tree.2[[i]]=jesse.tree.select(tmp,set.total)
   tree.plot[[i]]=rpart.plot(tree.2[[i]],box.palette = 'Reds',extra=1)
   
@@ -731,108 +1290,7 @@ for (i in 1:max(folds)){
 
 }
 
-pdf("Matchingtree_SPPB_LOO.pdf", onefile = TRUE)
-for (i in 1:length(tree.2)) {
-  rpart.plot(tree.2[[i]],box.palette = 'Reds',extra=1)
-}
-dev.off()
-
-######################
-## 14. 6MWD Matching Tree
-######################
-
-#calculate the difference between treated and control
-treat.set=match.set[match.set[,"trt"]==1,]
-control.set=match.set[match.set[,"trt"]==0,]
-outcome.diff=(treat.set$fu_smw-treat.set$bl_smw)-
-  (control.set$fu_smw-control.set$bl_smw)
-set.total=as.data.frame(rbind(cbind(treat.set,outcome.diff),cbind(control.set,outcome.diff)))
-
-#build matching tree using all data
-tree.rpart=rpart(outcome.diff~creatinine_mg_dl+troponin_i_pg_ml+hs_crp_mg_l+
-                   nt_pro_bnp+troponin_t_ng_l ,method="anova",data=set.total,
-                 control=rpart.control(minbucket = 20))
-#this is the result after prune
-set.total$outcome = set.total$fu_smw - set.total$bl_smw
-tree.all=jesse.tree.select(tree.rpart,set.total)
-
-pdf("Figure3b_Matchingtree_6MWD.pdf")
-rpart.plot(tree.all,box.palette = 'Reds',extra=1)
-dev.off()
-setEPS()
-postscript("Figure3b_Matchingtree_6MWD.eps")
-rpart.plot(tree.all,box.palette = 'Reds',extra=1)
-dev.off()
-
-#get confidence intervals
-set.total$smw_node=rpart.predict.leaves(tree.all,set.total,type="where")
-modscore.6mwd=lm(data=set.total,formula= outcome.diff~0+as.factor(smw_node))
-confint(modscore.6mwd)
-# 2.5 %    97.5 %
-# as.factor(smw_node)2 -0.4550698  60.19986
-# as.factor(smw_node)4 20.4393863  90.47766
-# as.factor(smw_node)5 78.0548485 179.54995
-
-summary(modscore.6mwd)
-# Call:
-#   lm(formula = outcome.diff ~ 0 + as.factor(smw_node), data = set.total)
-# 
-# Residuals:
-#   Min      1Q  Median      3Q     Max 
-# -192.01  -74.02   11.63   54.96  499.82 
-# 
-# Coefficients:
-#   Estimate Std. Error t value Pr(>|t|)    
-# as.factor(smw_node)2    29.87      15.31   1.951  0.05348 .  
-# as.factor(smw_node)4    55.46      17.68   3.137  0.00217 ** 
-#   as.factor(smw_node)5   128.80      25.62   5.027 1.84e-06 ***
-#   ---
-#   Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
-# 
-# Residual standard error: 114.6 on 115 degrees of freedom
-# Multiple R-squared:  0.2529,	Adjusted R-squared:  0.2334 
-# F-statistic: 12.97 on 3 and 115 DF,  p-value: 2.33e-07
-
-#Leave one out stability analysis
-set.seed(34)
-folds <- cut(seq(1,nrow(treat.set)),breaks=nrow(treat.set),labels=FALSE)
-#shuffle folds
-folds<- folds[sample(nrow(treat.set))]
-
-#store trees and subpops
-tree.2=list()
-tree.plot=list()
-tree.leaves=list()
-tree.mod.train=list()
-tree.mod.test=list()
-for (i in 1:max(folds)){
-  
-  #identify pairs in the train
-  ids <- treat.set$subject_id[folds != i]
-  pairs.train <- set.total$pairin[set.total$subject_id %in% ids]
-  
-  #this is the result from CART (update with different rpart.control params)
-  tmp=rpart(outcome.diff~creatinine_mg_dl+troponin_i_pg_ml+hs_crp_mg_l+
-              nt_pro_bnp+troponin_t_ng_l,
-            method="anova",data=set.total[set.total$pairin %in% pairs.train,],
-            control=rpart.control(minbucket = 20))
-  
-  #this is the result after prune
-  set.total$outcome = set.total$fu_smw - set.total$bl_smw
-  tree.2[[i]]=jesse.tree.select(tmp,set.total)
-  tree.plot[[i]]=rpart.plot(tree.2[[i]],box.palette = 'Reds',extra=1)
-  
-  #numbers are average outcome diff
-  #get leaves for all observations
-  tree.leaves[[i]]=rpart.predict.leaves(tree.2[[i]],set.total,type="where")
-  
-  df=cbind(set.total,tree.leaves[[i]])
-  colnames(df)
-  tree.mod.train[[i]]=summary(lm(outcome.diff ~ 0 + as.factor(`tree.leaves[[i]]`), data=df[df$pairin %in% pairs.train,]))
-  
-}
-
-pdf("Matchingtree_6MWD_LOO.pdf", onefile = TRUE)
+pdf("Results/Matchingtree_SPPB_LOO.pdf", onefile = TRUE)
 for (i in 1:length(tree.2)) {
   rpart.plot(tree.2[[i]],box.palette = 'Reds',extra=1)
 }
