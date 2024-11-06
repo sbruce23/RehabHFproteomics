@@ -1598,6 +1598,7 @@ dftmp.all=merge(rprotblds_long2,
                    all.x=TRUE)
 dftmp.all$Protein_change = (dftmp.all$ExpressionLevel.y) - (dftmp.all$ExpressionLevel.x)
 
+pdf("Results/mediationanalysis_6mwd.pdf",onefile=TRUE)
 for (i in 1:length(protlist)){
   #limited to propensity matched participants
   dftmp = dftmp.all[!is.na(dftmp.all$smw_chg) & 
@@ -1605,7 +1606,7 @@ for (i in 1:length(protlist)){
                       dftmp.all$subject_id %in% matchedset.6mwd$subject_id &
                       dftmp.all$Protein==protlist[i],]
   
-  #model the effect of the intervention on the mediator (change in  level)
+  #model the effect of the intervention on the outcome
   total_model <- lm(smw_chg ~  Intervention+ExpressionLevel.x + age + sex + race___4 + hf_cat,
                        data = dftmp)
 
@@ -1626,8 +1627,9 @@ for (i in 1:length(protlist)){
   print(summary(med_results))
   plot(med_results,main=protlist[i])
 }
-
+dev.off()
 #sppb
+pdf("Results/mediationanalysis_sppb.pdf",onefile=TRUE)
 for (i in 1:length(protlist)){
   #limited to propensity matched participants
   dftmp = dftmp.all[!is.na(dftmp.all$sppb_chg) & 
@@ -1635,7 +1637,7 @@ for (i in 1:length(protlist)){
                       dftmp.all$subject_id %in% matchedset.sppb$subject_id &
                       dftmp.all$Protein==protlist[i],]
   
-  #model the effect of the intervention on the mediator (change in  level)
+  #model the effect of the intervention on the outcome
   total_model <- lm(sppb_chg ~  Intervention+ExpressionLevel.x + age + sex + race___4 + hf_cat,
                     data = dftmp)
   
@@ -1656,3 +1658,4 @@ for (i in 1:length(protlist)){
   print(summary(med_results))
   plot(med_results,main=protlist[i])
 }
+dev.off()
