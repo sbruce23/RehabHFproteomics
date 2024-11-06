@@ -18,6 +18,8 @@ library(rpart.plot)
 library(lsmeans)
 library(treeClust)
 library(pdfCluster)
+library(mediation)
+library(dplyr)
 
 setwd("~/Library/CloudStorage/OneDrive-SharedLibraries-HarvardUniversity/REHAB-HFpEF Ancillary - General/REHAB-HF proteomics/REHAB-HF proteomics data")
 
@@ -729,37 +731,78 @@ ggsave(ggheatmap,file='Results/SuppFigure2_SpearmanCorrelation.eps',width=5,heig
 tmpdf <- rprotblds
 colnames(tmpdf)[which(colnames(rprotblds) %in% protlist)] =  make.names(protlist, unique=TRUE)
 protlistclean= make.names(protlist, unique=TRUE)
-
+regresults.sppb=data.frame(Protein=protlist,Unadjusted.Effect=NA,Unadjusted.Pval=NA,
+                      Adjusted.Effect=NA,Adjusted.Pval=NA,Interaction.Pval=NA)
+regresults.6mwd=regresults.sppb
 for (i in 1:length(protlist)){
   
   fname=paste("Results/RegressionAnalyses/SPPBvs",protlist[i],"_regressionanalysis.html",sep="")
   ttl=paste("Follow up SPPB ~ Baseline SPPB + ",protlist[i]," + Intervention + More",sep="")
-  print(tab_model(summary(lm(data=tmpdf,
-                             formula=paste0("fu_sppb ~ bl_sppb + 
+  mod.sppb.unadj=lm(data=tmpdf,
+          formula=paste0("fu_sppb ~ bl_sppb + 
                                ",protlistclean[i]," +
-                               intervention_1_control_0"))),
-                  summary(lm(data=tmpdf,
-                             formula=paste0("fu_sppb ~ bl_sppb + 
+                               intervention_1_control_0"));
+  mod.sppb.adj=lm(data=tmpdf,
+                  formula=paste0("fu_sppb ~ bl_sppb + 
                                ",protlistclean[i],"*intervention_1_control_0+
-                                            age+sex+race___4+hf_cat*intervention_1_control_0"))),
+                                            age+sex+race___4+hf_cat*intervention_1_control_0"));
+  print(tab_model(summary(mod.sppb.unadj),
+                  summary(mod.sppb.adj),
                   title=ttl,file=fname,
                   digits=3,digits.p=4,show.obs=TRUE))
   
+  #store results
+  regresults.sppb$Unadjusted.Effect[i]=paste0(round(mod.sppb.unadj$coefficients[protlistclean[i]],4),
+                                         "(",
+                                         round(confint(mod.sppb.unadj,protlistclean[i])[1],4),
+                                         ",",
+                                         round(confint(mod.sppb.unadj,protlistclean[i])[2],4),
+                                         ")")
+  regresults.sppb$Unadjusted.Pval[i]=round(summary(mod.sppb.unadj)$coefficients[protlistclean[i],4],4)
+  regresults.sppb$Adjusted.Effect[i]=paste0(round(mod.sppb.adj$coefficients[protlistclean[i]],4),
+                                         "(",
+                                         round(confint(mod.sppb.adj,protlistclean[i])[1],4),
+                                         ",",
+                                         round(confint(mod.sppb.adj,protlistclean[i])[2],4),
+                                         ")")
+  regresults.sppb$Adjusted.Pval[i]=round(summary(mod.sppb.adj)$coefficients[protlistclean[i],4],4)
+  regresults.sppb$Interaction.Pval[i]=round(summary(mod.sppb.adj)$coefficients[paste0(protlistclean[i],":intervention_1_control_01"),4],4)
+   
   fname=paste("Results/RegressionAnalyses/6MWDvs",protlist[i],"_regressionanalysis.html",sep="")
   ttl=paste("Follow up 6MWD ~ Baseline 6MWD + ",protlist[i]," + Intervention + More",sep="")
-  print(tab_model(summary(lm(data=tmpdf,
-                             formula=paste0("fu_smw ~ bl_smw + 
+  mod.6mwd.unadj=lm(data=tmpdf,
+                    formula=paste0("fu_smw ~ bl_smw +  
                                ",protlistclean[i]," +
-                               intervention_1_control_0"))),
-                  summary(lm(data=tmpdf,
-                             formula=paste0("fu_smw ~ bl_smw + 
+                               intervention_1_control_0"));
+  mod.6mwd.adj=lm(data=tmpdf,
+                  formula=paste0("fu_smw ~ bl_smw + 
                                ",protlistclean[i],"*intervention_1_control_0+
-                                            age+sex+race___4+hf_cat*intervention_1_control_0"))),
+                                            age+sex+race___4+hf_cat*intervention_1_control_0"));
+  print(tab_model(summary(mod.6mwd.unadj),
+                  summary(mod.6mwd.adj),
                   title=ttl,file=fname,
                   digits=3,digits.p=4,show.obs=TRUE))
+
+  #store results
+  regresults.6mwd$Unadjusted.Effect[i]=paste0(round(mod.6mwd.unadj$coefficients[protlistclean[i]],4),
+                                              "(",
+                                              round(confint(mod.6mwd.unadj,protlistclean[i])[1],4),
+                                              ",",
+                                              round(confint(mod.6mwd.unadj,protlistclean[i])[2],4),
+                                              ")")
+  regresults.6mwd$Unadjusted.Pval[i]=round(summary(mod.6mwd.unadj)$coefficients[protlistclean[i],4],4)
+  regresults.6mwd$Adjusted.Effect[i]=paste0(round(mod.6mwd.adj$coefficients[protlistclean[i]],4),
+                                            "(",
+                                            round(confint(mod.6mwd.adj,protlistclean[i])[1],4),
+                                            ",",
+                                            round(confint(mod.6mwd.adj,protlistclean[i])[2],4),
+                                            ")")
+  regresults.6mwd$Adjusted.Pval[i]=round(summary(mod.6mwd.adj)$coefficients[protlistclean[i],4],4)
+  regresults.6mwd$Interaction.Pval[i]=round(summary(mod.6mwd.adj)$coefficients[paste0(protlistclean[i],":intervention_1_control_01"),4],4)
   
 }  
-
+write.csv(regresults.sppb,"Results/regsummary_sppb.csv")
+write.csv(regresults.6mwd,"Results/regsummary_6mwd.csv")
 ############################################
 ## 6. Figures 1 and 2 (Linear Regression Results) ##
 ############################################
@@ -887,52 +930,120 @@ tbl_summary(rprotblds[,
 tmpdf <- rprotblds
 colnames(tmpdf)[which(colnames(rprotblds) %in% protlist)] =  make.names(protlist, unique=TRUE)
 protlistclean= make.names(protlist, unique=TRUE)
+regresults.death=data.frame(Protein=protlist,Unadjusted.Effect=NA,Unadjusted.Pval=NA,
+                           Adjusted.Effect=NA,Adjusted.Pval=NA,Interaction.Pval=NA)
+regresults.rehosp=regresults.death
+regresults.both=regresults.death
 
 for (i in 1:length(protlist)){
   
   fname=paste("Results/RegressionAnalyses/DeathorRehospvs",protlist[i],"_regressionanalysis.html",sep="")
   ttl=paste("logit(Death or Rehosp) ~ ",protlist[i]," + Intervention + More",sep="")
-  print(tab_model(glm(data=tmpdf,
-                      formula=paste0("event ~  
+  mod.both.unadj=glm(data=tmpdf,
+                     formula=paste0("event ~  
                                ",protlistclean[i]," +
-                               intervention_1_control_0"), family=binomial(link="logit")),
-                  glm(data=tmpdf,
-                      formula=paste0("event ~  
+                               intervention_1_control_0"), family=binomial(link="logit"))
+  mod.both.adj=glm(data=tmpdf,
+                   formula=paste0("event ~  
                                ",protlistclean[i],"*intervention_1_control_0+
-                                            age+sex+race___4+hf_cat*intervention_1_control_0"), family=binomial(link="logit")),
+                                            age+sex+race___4+hf_cat*intervention_1_control_0"), family=binomial(link="logit"))
+  print(tab_model(mod.both.unadj,
+                  mod.both.adj,
                   title=ttl,
                   file=fname,
                   digits=4,digits.p=4,show.obs=TRUE))
+  
+  #store results
+  regresults.both$Unadjusted.Effect[i]=paste0(round(exp(mod.both.unadj$coefficients[protlistclean[i]]),4),
+                                              "(",
+                                              round(exp(confint(mod.both.unadj,protlistclean[i])[1]),4),
+                                              ",",
+                                              round(exp(confint(mod.both.unadj,protlistclean[i])[2]),4),
+                                              ")")
+  regresults.both$Unadjusted.Pval[i]=round(summary(mod.both.unadj)$coefficients[protlistclean[i],4],4)
+  regresults.both$Adjusted.Effect[i]=paste0(round(exp(mod.both.adj$coefficients[protlistclean[i]]),4),
+                                            "(",
+                                            round(exp(confint(mod.both.adj,protlistclean[i])[1]),4),
+                                            ",",
+                                            round(exp(confint(mod.both.adj,protlistclean[i])[2]),4),
+                                            ")")
+  regresults.both$Adjusted.Pval[i]=round(summary(mod.both.adj)$coefficients[protlistclean[i],4],4)
+  regresults.both$Interaction.Pval[i]=round(summary(mod.both.adj)$coefficients[paste0(protlistclean[i],":intervention_1_control_01"),4],4)
+  
   
   fname=paste("Results/RegressionAnalyses/Deathvs",protlist[i],"_regressionanalysis.html",sep="")
   ttl=paste("logit(Death) ~ ",protlist[i]," + Intervention + More",sep="")
-  print(tab_model(glm(data=tmpdf,
+
+  mod.death.unadj=glm(data=tmpdf,
                       formula=paste0("death ~  
                                ",protlistclean[i]," +
-                               intervention_1_control_0"), family=binomial(link="logit")),
-                  glm(data=tmpdf,
-                      formula=paste0("death ~  
+                               intervention_1_control_0"), family=binomial(link="logit"))
+  mod.death.adj=glm(data=tmpdf,
+                    formula=paste0("death ~  
                                ",protlistclean[i],"*intervention_1_control_0+
-                                            age+sex+race___4+hf_cat*intervention_1_control_0"), family=binomial(link="logit")),
+                                            age+sex+race___4+hf_cat*intervention_1_control_0"), family=binomial(link="logit"))
+  print(tab_model(mod.death.unadj,
+                  mod.death.adj,
                   title=ttl,
                   file=fname,
                   digits=4,digits.p=4,show.obs=TRUE))
+  
+  #store results
+  regresults.death$Unadjusted.Effect[i]=paste0(round(exp(mod.death.unadj$coefficients[protlistclean[i]]),4),
+                                              "(",
+                                              round(exp(confint(mod.death.unadj,protlistclean[i])[1]),4),
+                                              ",",
+                                              round(exp(confint(mod.death.unadj,protlistclean[i])[2]),4),
+                                              ")")
+  regresults.death$Unadjusted.Pval[i]=round(summary(mod.death.unadj)$coefficients[protlistclean[i],4],4)
+  regresults.death$Adjusted.Effect[i]=paste0(round(exp(mod.death.adj$coefficients[protlistclean[i]]),4),
+                                            "(",
+                                            round(exp(confint(mod.death.adj,protlistclean[i])[1]),4),
+                                            ",",
+                                            round(exp(confint(mod.death.adj,protlistclean[i])[2]),4),
+                                            ")")
+  regresults.death$Adjusted.Pval[i]=round(summary(mod.death.adj)$coefficients[protlistclean[i],4],4)
+  regresults.death$Interaction.Pval[i]=round(summary(mod.death.adj)$coefficients[paste0(protlistclean[i],":intervention_1_control_01"),4],4)
+  
   
   fname=paste("Results/RegressionAnalyses/Rehospvs",protlist[i],"_regressionanalysis.html",sep="")
   ttl=paste("logit(Rehosp) ~ ",protlist[i]," + Intervention + More",sep="")
-  print(tab_model(glm(data=tmpdf,
-                      formula=paste0("rehosp ~  
+  mod.rehosp.unadj=glm(data=tmpdf,
+                       formula=paste0("rehosp ~  
                                ",protlistclean[i]," +
-                               intervention_1_control_0"), family=binomial(link="logit")),
-                  glm(data=tmpdf,
-                      formula=paste0("rehosp ~  
+                               intervention_1_control_0"), family=binomial(link="logit"))
+  mod.rehosp.adj=glm(data=tmpdf,
+                     formula=paste0("rehosp ~  
                                ",protlistclean[i],"*intervention_1_control_0+
-                                            age+sex+race___4+hf_cat*intervention_1_control_0"), family=binomial(link="logit")),
+                                            age+sex+race___4+hf_cat*intervention_1_control_0"), family=binomial(link="logit"))
+  print(tab_model(mod.rehosp.unadj,
+                  mod.rehosp.adj,
                   title=ttl,
                   file=fname,
                   digits=4,digits.p=4,show.obs=TRUE))
   
+  #store results
+  regresults.rehosp$Unadjusted.Effect[i]=paste0(round(exp(mod.rehosp.unadj$coefficients[protlistclean[i]]),4),
+                                               "(",
+                                               round(exp(confint(mod.rehosp.unadj,protlistclean[i])[1]),4),
+                                               ",",
+                                               round(exp(confint(mod.rehosp.unadj,protlistclean[i])[2]),4),
+                                               ")")
+  regresults.rehosp$Unadjusted.Pval[i]=round(summary(mod.rehosp.unadj)$coefficients[protlistclean[i],4],4)
+  regresults.rehosp$Adjusted.Effect[i]=paste0(round(exp(mod.rehosp.adj$coefficients[protlistclean[i]]),4),
+                                             "(",
+                                             round(exp(confint(mod.rehosp.adj,protlistclean[i])[1]),4),
+                                             ",",
+                                             round(exp(confint(mod.rehosp.adj,protlistclean[i])[2]),4),
+                                             ")")
+  regresults.rehosp$Adjusted.Pval[i]=round(summary(mod.rehosp.adj)$coefficients[protlistclean[i],4],4)
+  regresults.rehosp$Interaction.Pval[i]=round(summary(mod.rehosp.adj)$coefficients[paste0(protlistclean[i],":intervention_1_control_01"),4],4)
+  
+  
 }  
+write.csv(regresults.death,"Results/regsummary_death.csv")
+write.csv(regresults.rehosp,"Results/regsummary_rehosp.csv")
+write.csv(regresults.both,"Results/regsummary_deathrehosp.csv")
 
 ############################################
 ## 10. Propensity matching  ##
@@ -1059,7 +1170,7 @@ control.set=match.set[match.set[,"trt"]==0,]
 outcome.diff=(treat.set$fu_smw-treat.set$bl_smw)-
   (control.set$fu_smw-control.set$bl_smw)
 set.total=as.data.frame(rbind(cbind(treat.set,outcome.diff),cbind(control.set,outcome.diff)))
-
+matchedset.6mwd=set.total #for later use
 #build matching tree using all data
 tree.rpart=rpart(outcome.diff~`LDL receptor`+ALCAM+PLC+CHIT1+`Gal-4`
                  # +age+sex+race___4+hf_cat
@@ -1206,7 +1317,7 @@ control.set=match.set[match.set[,"trt"]==0,]
 outcome.diff=(treat.set$fu_sppb-treat.set$bl_sppb)-
   (control.set$fu_sppb-control.set$bl_sppb)
 set.total=as.data.frame(rbind(cbind(treat.set,outcome.diff),cbind(control.set,outcome.diff)))
-
+matchedset.sppb=set.total #for later use
 #build matching tree using all data
 tree.rpart=rpart(outcome.diff~`LDL receptor`+ALCAM+GP6+CCL16+ST2
                  # +age+sex+race___4+hf_cat
@@ -1353,7 +1464,7 @@ rprotfuds_long$Protein = factor(rprotfuds_long$Protein,levels=protlist)
 rprotds_wide=merge(rprotblds_long,
                    rprotfuds_long,by=c('subject_id','Protein','Intervention',"bl_smw","fu_smw","bl_sppb","fu_sppb","sppb_chg","smw_chg"),
                    all.x=TRUE)
-rprotds_wide$Protein_change = log2(rprotds_wide$ExpressionLevel.y) - log2(rprotds_wide$ExpressionLevel.x)
+rprotds_wide$Protein_change = (rprotds_wide$ExpressionLevel.y) - (rprotds_wide$ExpressionLevel.x)
 
 supfig3 <- ggplot(data=rprotds_wide,
              mapping=aes(x=Intervention, y=ExpressionLevel.y/ExpressionLevel.x, fill=Intervention))+
@@ -1442,4 +1553,106 @@ for (i in 1:length(protlist)){
   
   print(wilcox.test(x=dftmp[dftmp$Protein==protlist[i],"ExpressionLevel.y"]-
                       dftmp[dftmp$Protein==protlist[i],"ExpressionLevel.x"])$p.value)
+}
+
+#t-test to compare difference across groups
+dftmp=rprotds_wide[!is.na(rprotds_wide$timepoint.y),]
+for (i in 1:length(protlist)){
+  print(protlist[i])
+  print(t.test(Protein_change ~ Intervention, data=dftmp[dftmp$Protein==protlist[i],],var.equal=TRUE)$p.value)
+}  
+
+
+#mediation analysis
+#6mwd
+rprotblds_long2=pivot_longer(data=rprotblds[,
+                                           c("subject_id","timepoint","intervention_1_control_0",
+                                             "bl_smw","fu_smw","bl_sppb","fu_sppb",
+                                             "age","sex","race___4","hf_cat",protlist)],
+                            cols=protlist,
+                            names_to='Protein',values_to='ExpressionLevel')
+rprotfuds_long2=pivot_longer(data=rprotfuds[,
+                                            c("subject_id","timepoint","intervention_1_control_0",
+                                              "bl_smw","fu_smw","bl_sppb","fu_sppb",
+                                              "age","sex","race___4","hf_cat",protlist)],
+                             cols=protlist,
+                             names_to='Protein',values_to='ExpressionLevel')
+rprotblds_long2$sppb_chg = rprotblds_long2$fu_sppb - rprotblds_long2$bl_sppb
+rprotblds_long2$sppb_logchg = log2(rprotblds_long2$fu_sppb) - log2(rprotblds_long2$bl_sppb)
+rprotblds_long2$smw_chg = rprotblds_long2$fu_smw - rprotblds_long2$bl_smw
+rprotblds_long2$smw_logchg = log2(rprotblds_long2$fu_smw) - log2(rprotblds_long2$bl_smw)
+rprotfuds_long2$sppb_chg = rprotfuds_long2$fu_sppb - rprotfuds_long2$bl_sppb
+rprotfuds_long2$sppb_logchg = log2(rprotfuds_long2$fu_sppb) - log2(rprotfuds_long2$bl_sppb)
+rprotfuds_long2$smw_chg = rprotfuds_long2$fu_smw - rprotfuds_long2$bl_smw
+rprotfuds_long2$smw_logchg = log2(rprotfuds_long2$fu_smw) - log2(rprotfuds_long2$bl_smw)
+colnames(rprotblds_long2)[3] <- "Intervention"
+colnames(rprotfuds_long2)[3] <- "Intervention"
+rprotblds_long2$Protein = factor(rprotblds_long2$Protein,levels=protlist)
+rprotfuds_long2$Protein = factor(rprotfuds_long2$Protein,levels=protlist)
+
+dftmp.all=merge(rprotblds_long2,
+                   rprotfuds_long2,by=c('subject_id','Protein','Intervention',
+                                       "bl_smw","fu_smw","bl_sppb","fu_sppb","sppb_chg","smw_chg",
+                                       "sppb_logchg","smw_logchg",
+                                       "age","sex","race___4","hf_cat"),
+                   all.x=TRUE)
+dftmp.all$Protein_change = (dftmp.all$ExpressionLevel.y) - (dftmp.all$ExpressionLevel.x)
+
+for (i in 1:length(protlist)){
+  #limited to propensity matched participants
+  dftmp = dftmp.all[!is.na(dftmp.all$smw_chg) & 
+                      !is.na(dftmp.all$Protein_change) & 
+                      dftmp.all$subject_id %in% matchedset.6mwd$subject_id &
+                      dftmp.all$Protein==protlist[i],]
+  
+  #model the effect of the intervention on the mediator (change in  level)
+  total_model <- lm(smw_chg ~  Intervention+ExpressionLevel.x + age + sex + race___4 + hf_cat,
+                       data = dftmp)
+
+  #model the effect of the intervention on the mediator (change in  level)
+  mediator_model <- lm(Protein_change ~  Intervention+ExpressionLevel.x + age + sex + race___4 + hf_cat,
+                        data = dftmp)
+
+  #model the outcome with both the intervention and mediator (protein) included
+  outcome_model <- lm(smw_chg ~  Intervention+Protein_change +ExpressionLevel.x+age + sex + race___4 + hf_cat, 
+                       data = dftmp)
+
+  # Estimate the direct and indirect effects using the mediation package
+  med_results <- mediate(mediator_model, outcome_model, 
+                         treat = "Intervention", mediator = "Protein_change",
+                         boot = TRUE, sims = 1000)  # Bootstrap for confidence intervals
+  
+  # Print summary of mediation results
+  print(summary(med_results))
+  plot(med_results,main=protlist[i])
+}
+
+#sppb
+for (i in 1:length(protlist)){
+  #limited to propensity matched participants
+  dftmp = dftmp.all[!is.na(dftmp.all$sppb_chg) & 
+                      !is.na(dftmp.all$Protein_change) & 
+                      dftmp.all$subject_id %in% matchedset.sppb$subject_id &
+                      dftmp.all$Protein==protlist[i],]
+  
+  #model the effect of the intervention on the mediator (change in  level)
+  total_model <- lm(sppb_chg ~  Intervention+ExpressionLevel.x + age + sex + race___4 + hf_cat,
+                    data = dftmp)
+  
+  #model the effect of the intervention on the mediator (change in  level)
+  mediator_model <- lm(Protein_change ~  Intervention+ExpressionLevel.x + age + sex + race___4 + hf_cat,
+                       data = dftmp)
+  
+  #model the outcome with both the intervention and mediator (protein) included
+  outcome_model <- lm(sppb_chg ~  Intervention+Protein_change +ExpressionLevel.x+age + sex + race___4 + hf_cat, 
+                      data = dftmp)
+  
+  # Estimate the direct and indirect effects using the mediation package
+  med_results <- mediate(mediator_model, outcome_model, 
+                         treat = "Intervention", mediator = "Protein_change",
+                         boot = TRUE, sims = 1000)  # Bootstrap for confidence intervals
+  
+  # Print summary of mediation results
+  print(summary(med_results))
+  plot(med_results,main=protlist[i])
 }
