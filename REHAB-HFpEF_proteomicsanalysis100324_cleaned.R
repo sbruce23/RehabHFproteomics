@@ -1567,7 +1567,7 @@ p1 <- ggcorrplot(cor(na.omit(rprotblds[,3:94])),
 
 pdf("Results/correlationplot_allparticipants_baseline.pdf", onefile = TRUE)
 p1
-
+dev.off()
 #rehab vs usual care
 p1 <- ggcorrplot(cor(na.omit(rprotblds[rprotblds$intervention_1_control_0==0,3:94])),
                  title="Usual Care Patients (Baseline)",hc.order=TRUE,hc.method="complete")+hw+
