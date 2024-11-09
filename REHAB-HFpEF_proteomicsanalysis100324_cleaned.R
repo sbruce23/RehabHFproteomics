@@ -20,6 +20,10 @@ library(treeClust)
 library(pdfCluster)
 library(mediation)
 library(dplyr)
+library(ggcorrplot)
+library(HDtest)
+library(WGCNA)
+library(RColorBrewer)
 
 setwd("~/Library/CloudStorage/OneDrive-SharedLibraries-HarvardUniversity/REHAB-HFpEF Ancillary - General/REHAB-HF proteomics/REHAB-HF proteomics data")
 
@@ -168,9 +172,15 @@ varlist = c("age","sex","race___4","hf_cat","creatinine_value",
 rprotblds <- merge(x=olink_dta_bl,y=rhfds[,c("study_id",varlist)],
                    by.x='subject_id',by.y='study_id',all.x=TRUE)
 
+
 rprotfuds <- merge(x=olink_dta_fu,y=rhfds[,c("study_id",varlist)],
                    by.x='subject_id',by.y='study_id',all.x=TRUE)
 
+#make negative values as NA for both rprotblds and rprotfuds
+for (i in 3:94){
+  rprotblds[,i][rprotblds[,i]<0] <- NA
+  rprotfuds[,i][rprotfuds[,i]<0] <- NA
+}     
 
 #add intervention indicator from rbiods
 rprotblds <- merge(x=rprotblds,y=rbiods[rbiods$timepoint=='Baseline',
@@ -302,16 +312,8 @@ sppb_data <- cbind(rprotblds[,c("fu_sppb","intervention_1_control_0","bl_sppb","
 #remove incomplete cases (any rows with missingness, mostly due to lack of follow up)
 sppb_data = na.omit(sppb_data);
 
-# ##using glmnet doesn't enforce strong hierarchy
-# f <- as.formula(fu_sppb ~ .+intervention_1_control_0*.)
-# sppb_y <- sppb_data$fu_sppb
-# sppb_x <- model.matrix(f, sppb_data)[, -1]
-# 
-# fit <- glmnet(sppb_x, sppb_y)
-# plot(fit)
-
 ##using glinternet, which does enforce strong hierarchy
-set.seed(23)
+set.seed(97)
 sppb_y <- sppb_data$fu_sppb
 #reformat factors as 0/1 vars
 sppb_x <- data.frame(intervention_1_control_0=as.numeric(sppb_data$intervention_1_control_0)-1,
@@ -322,23 +324,14 @@ sppb_x <- data.frame(intervention_1_control_0=as.numeric(sppb_data$intervention_
                      sppb_data[,8:99])
 #number of levels for each independent var (1 for continuous vars)
 numLevels <- c(2,1,1,2,2,2,rep(1,92))
-fit <- glinternet(sppb_x,sppb_y,numLevels=numLevels,
-                  interactionCandidates = 1)
-coeffs <- coef(fit)
 
-fit <- glinternet.cv(sppb_x,sppb_y,numLevels=numLevels,
-                     interactionCandidates = 1)
+fit.cv <- glinternet.cv(sppb_x,sppb_y,numLevels=numLevels,nFolds=10,nLambda=10)
+plot(fit.cv)
+fit.cv$lambdaHat
+fit <- glinternet(sppb_x,sppb_y,numLevels=numLevels,lambda=fit.cv$lambdaHat)
+fit$activeSet
+coeffs=coef(fit)[[2]]
 
-#looking through results
-# plot(fit)
-# fit$lambdaHat #0.01029845
-# fit$lambdaHat1Std #0.07411649
-# fit$activeSet #variables selected using lambdaHat above
-# fit$betahat
-# fit$family
-# coeffs=coef(fit)
-# coeffs$mainEffects
-# coeffs$interactions
 #categorical variables
 #1: intervention vs control
 #2: sex
@@ -352,40 +345,11 @@ fit <- glinternet.cv(sppb_x,sppb_y,numLevels=numLevels,
 
 #proteins with treatment effect interactions selected
 names(sppb_data[,8:99])[coeffs$interactions$catcont[,2]-2]
-# [1] "LDL receptor"  "ALCAM"         "BLM hydrolase" "SPON1"        
-# [5] "CXCL16"        "GP6"           "CCL16"        
+# [1] "GP6" 
 
-coeffs$interactionsCoef
-#give you estimates of the deviation from the main effect slope for control vs treatment
-
+#main effects
 names(sppb_data[,8:99])[coeffs$mainEffects$cont[c(-1,-2)]-2]
 unlist(coeffs$mainEffectsCoef$cont)[c(-1,-2)]
-
-# #fit a model
-# summary(lm(formula=fu_sppb ~ intervention_1_control_0+hf_cat+
-#              bl_sppb+`BLM hydrolase`+`TIMP4`+`TLT-2`+`TR`+SELE+MPO+`IGFBP-1`+
-#              PI3+`AP-N`+TNFSF13B+PCSK9+`U-PAR`+`SHPS-1`+CCL15+`CASP-3`+CPB1+
-#              CHI3L1+ST2+SCGB3A2+PON3+CTSZ+`LDL receptor`+ALCAM+SPON1+CXCL16+       
-#              +GP6+CCL16+
-#              `LDL receptor`:intervention_1_control_0+ALCAM:intervention_1_control_0+
-#              `BLM hydrolase`:intervention_1_control_0+SPON1:intervention_1_control_0+        
-#              `CXCL16`:intervention_1_control_0+GP6:intervention_1_control_0+
-#              `CCL16`:intervention_1_control_0        
-#            ,data=rprotblds))
-
-#fit models considering lambda values between fit$lambdaHat (0.01029845) and fit$lambdaHat1Std (0.07411649)
-#find the model that is a bit more parismonious than the one at lambdaHat by increasing lambda slightly
-#to reduce the model size
-fit.step.sppb <- glinternet(sppb_x,sppb_y,numLevels=numLevels,lambda=fit$lambda[7:28],
-                            interactionCandidates = 1)
-
-lapply(coef(fit.step.sppb),function(x) names(sppb_data[,8:99])[x$interactions$catcont[,2]-2])
-lapply(coef(fit.step.sppb),function(x) names(sppb_data[,8:99])[x$interactions$catcont[,2]-2])[[17]]
-#[1] "LDL receptor" "ALCAM"        "GP6"          "CCL16"  
-fit.step.sppb$lambda[17]
-#0.01647607
-
-#lambda slightly higher than lambdaHat, but returns 4 EMMS vs. 7
 
 #6mwd
 smw_data <- cbind(rprotblds[,c("fu_smw","intervention_1_control_0","bl_smw","age","sex","race___4","hf_cat")],
@@ -394,16 +358,8 @@ smw_data <- cbind(rprotblds[,c("fu_smw","intervention_1_control_0","bl_smw","age
 #remove incomplete cases (any rows with missingness, mostly due to lack of follow up)
 smw_data = na.omit(smw_data);
 
-# ##using glmnet, but unfortunately this doesn't enforce strong hierarchy
-# f <- as.formula(fu_smw ~ .+intervention_1_control_0*.)
-# smw_y <- smw_data$fu_smw
-# smw_x <- model.matrix(f, smw_data)[, -1]
-# 
-# fit <- glmnet(smw_x, smw_y)
-# plot(fit)
-
 ##using glinternet, which does enforce strong hierarchy
-set.seed(34)
+set.seed(567)
 smw_y <- smw_data$fu_smw
 #reformat factors as 0/1 vars
 smw_x <- data.frame(intervention_1_control_0=as.numeric(smw_data$intervention_1_control_0)-1,
@@ -414,23 +370,14 @@ smw_x <- data.frame(intervention_1_control_0=as.numeric(smw_data$intervention_1_
                     smw_data[,8:99])
 #number of levels for each independent var (1 for continuous vars)
 numLevels <- c(2,1,1,2,2,2,rep(1,92))
-fit <- glinternet(smw_x,smw_y,numLevels=numLevels,
-                  interactionCandidates = 1)
-coeffs = coef(fit)
 
-fit <- glinternet.cv(smw_x,smw_y,numLevels=numLevels,
-                     interactionCandidates = 1)
+fit.cv <- glinternet.cv(smw_x,smw_y,numLevels=numLevels,nFolds=10,nLambda=10)
+plot(fit.cv)
+fit.cv$lambdaHat
+fit <- glinternet(smw_x,smw_y,numLevels=numLevels,lambda=fit.cv$lambdaHat)
+fit$activeSet
+coeffs=coef(fit)[[2]]
 
-#looking through results
-# plot(fit)
-# fit$lambdaHat #0.375042
-# fit$lambdaHat1Std #6.288827
-# fit$activeSet #variables selected using lambdaHat above
-# fit$betahat
-# fit$family
-# coeffs=coef(fit)
-# coeffs$mainEffects
-# coeffs$interactions
 #categorical variables
 #1: intervention vs control
 #2: sex
@@ -444,41 +391,11 @@ fit <- glinternet.cv(smw_x,smw_y,numLevels=numLevels,
 
 #proteins with treatment effect interactions selected
 names(smw_data[,8:99])[coeffs$interactions$catcont[,2]-2]
-# [1] "LDL receptor"   "ALCAM"          "SELP"           "FABP4"          "CHIT1"         
-# [6] "Ep-CAM"         "Gal-4"          "t-PA"           "PDGF subunit A"
+# [1] "ALCAM" "Gal-4"
 
-coeffs$interactionsCoef
-#give you estimates of the deviation from the main effect slope for control vs treatment
-
+#main effects
 names(smw_data[,8:99])[coeffs$mainEffects$cont[c(-1,-2)]-2]
 unlist(coeffs$mainEffectsCoef$cont)[c(-1,-2)]
-
-#fit a model
-# summary(lm(formula=fu_smw ~ intervention_1_control_0+
-#              bl_smw+age+`LDL receptor`+`IL-17RA`+`IL2-RA`+`Gal-3`+`BLM hydrolase`+`Notch 3`+`DLK-1`+
-#              CXCL16+`IL-6RA`+GP6+`PSP-D`+`PI3`+`AP-N`+`MMP-2`+`TNFSF13B`+PRTN3+
-#              `SHPS-1`+uPA+CHI3L1+SCGB3A2+COL1A1+`vWF`+ALCAM+SELP+FABP4+CHIT1+`Ep-CAM`+`Gal-4`    
-#            +`t-PA`+`PDGF subunit A`+
-#              `LDL receptor`:intervention_1_control_0+ALCAM:intervention_1_control_0+
-#              SELP:intervention_1_control_0+FABP4:intervention_1_control_0+        
-#              CHIT1:intervention_1_control_0+`Ep-CAM`:intervention_1_control_0+
-#              `Gal-4`:intervention_1_control_0 +`t-PA`:intervention_1_control_0+
-#              `PDGF subunit A`:intervention_1_control_0
-#            ,data=rprotblds))
-
-#fit models considering lambda values between fit$lambdaHat (0.375042) and fit$lambdaHat1Std (6.288827)
-#find the model that is a bit more parismonious than the one at lambdaHat by increasing lambda slightly
-#to reduce the model size
-fit.step <- glinternet(smw_x,smw_y,numLevels=numLevels,lambda=fit$lambda[2:32],
-                       interactionCandidates = 1)
-
-lapply(coef(fit.step),function(x) names(smw_data[,8:99])[x$interactions$catcont[,2]-2])
-lapply(coef(fit.step),function(x) names(smw_data[,8:99])[x$interactions$catcont[,2]-2])[[23]]
-#[1] "LDL receptor" "ALCAM"        "PLC"          "CHIT1"        "Gal-4" 
-fit.step$lambda[23]
-#0.7954456
-
-#lambda slightly higher than lambdaHat, but returns 5 EMMS vs. 9
 
 ############################################
 ## 2.3 Protein EMM variable screening step 3: BART with interaction importance ##
@@ -506,7 +423,7 @@ sppb_x <- data.frame(sppb_data$intervention_1_control_0,
 
 bart_machine_sppb <- bartMachine(sppb_x, sppb_y,
                                  num_trees=100,
-                                 num_burn_in=500,
+                                 num_burn_in=2000,
                                  num_iterations_after_burn_in=2000,
                                  use_missing_data=TRUE,
                                  mem_cache_for_speed = FALSE,
@@ -635,17 +552,17 @@ dev.off()
 ############################################
 
 #LASSO selected vars for 6MWD
-# [1] "LDL receptor"   "ALCAM"          "PLC"         "CHIT1"     "Gal-4"         
+# [1] "ALCAM" "Gal-4"         
 
-#BART selected vars for 6MWD: Gal-4 (already selected via LASSO)
+#BART selected vars for 6MWD: Gal-4, PECAM-1, ICAM-2, MCP-1, t-PA, Gal-3 (Could stop after Gal-4 and PECAM)
 
 #LASSO selected vars for SPPB
-# #[1] "LDL receptor" "ALCAM"        "GP6"          "CCL16"      
+# #[1] "GP6"    
 
-#BART selected vars for SPPB: ST2, CCL16
+#BART selected vars for SPPB: ST2
 
 
-protlist = c("LDL receptor","ALCAM","PLC","CHIT1","Gal-4","GP6","CCL16","ST2")
+protlist = c("ALCAM","Gal-4","PECAM-1","GP6","ST2")
 
 
 varlist = c(c("intervention_1_control_0","age","sex","race___4",
@@ -819,8 +736,8 @@ rprotblds_long$smw_chg = rprotblds_long$fu_smw - rprotblds_long$bl_smw
 colnames(rprotblds_long)[3] <- "Intervention"
 rprotblds_long$Protein = factor(rprotblds_long$Protein,levels=protlist)
 
-protlist.6mwd <- c("LDL receptor","ALCAM","PLC","CHIT1","Gal-4")
-protlist.sppb <- c("LDL receptor","ALCAM","GP6","CCL16","ST2")
+protlist.6mwd <- c("ALCAM","Gal-4","PECAM-1")
+protlist.sppb <- c("GP6","ST2")
 
 #SPPB
 
@@ -1051,8 +968,8 @@ write.csv(regresults.both,"Results/regsummary_deathrehosp.csv")
 
 ps.df=rprotblds
 ps.df$trt=as.numeric(ps.df$intervention_1_control_0)-1
-ps.df=ps.df[complete.cases(ps.df[,c("LDL receptor","ALCAM","PLC","CHIT1","Gal-4",
-                                    "GP6","CCL16","ST2",
+ps.df=ps.df[complete.cases(ps.df[,c("ALCAM","Gal-4","PECAM-1",
+                                    "GP6","ST2",
                                     'bl_smw','fu_smw')]),]
 
 #propensity score for treatment assignment
@@ -1120,7 +1037,7 @@ jesse.tree.select=function(input,set1.caliper.tree){
 ######################
 
 #match on 6MWD vars
-# [1] "LDL receptor"   "ALCAM"          "PLC"         "CHIT1"     "Gal-4"         
+# [1] "ALCAM" "Gal-4" "PECAM-1"        
 
 set.trt=ps.df[ps.df[, "trt"] == 1,]
 set.cont=ps.df[ps.df[,"trt"]==0,]
@@ -1128,23 +1045,16 @@ match.set=c()
 calp.sd=1
 for (i in 1:dim(set.trt)[1]){
   pair.set1=c()
-  var.select1=ifelse(abs(set.cont$`LDL receptor`-
-                           set.trt$`LDL receptor`[i])<
-                       calp.sd*sd(set.trt$`LDL receptor`),1,0)
-  var.select2=ifelse(abs(set.cont$ALCAM-
-                           set.trt$ALCAM[i])<
-                       calp.sd*sd(set.trt$ALCAM),1,0)
-  var.select3=ifelse(abs(set.cont$PLC-
-                           set.trt$PLC[i])<
-                       calp.sd*sd(set.trt$PLC),1,0)
-  var.select4=ifelse(abs(set.cont$CHIT1-
-                           set.trt$CHIT1[i])<
-                       calp.sd*sd(set.trt$CHIT1),1,0)
-  var.select5=ifelse(abs(set.cont$`Gal-4`-
+  var.select1=ifelse(abs(set.cont$`ALCAM`-
+                           set.trt$`ALCAM`[i])<
+                       calp.sd*sd(set.trt$`ALCAM`),1,0)
+  var.select2=ifelse(abs(set.cont$`Gal-4`-
                            set.trt$`Gal-4`[i])<
                        calp.sd*sd(set.trt$`Gal-4`),1,0)
-  var.selectf=ifelse(var.select1+var.select2+var.select3+
-                       var.select4+var.select5==5,1,0)
+  var.select3=ifelse(abs(set.cont$`PECAM-1`-
+                           set.trt$`PECAM-1`[i])<
+                       calp.sd*sd(set.trt$`PECAM-1`),1,0)
+  var.selectf=ifelse(var.select1+var.select2+var.select3==3,1,0)
   id=c(1:length(var.select1))
   lenset.cont2=as.data.frame(cbind(
     id,set.cont,var.selectf))
@@ -1172,7 +1082,7 @@ outcome.diff=(treat.set$fu_smw-treat.set$bl_smw)-
 set.total=as.data.frame(rbind(cbind(treat.set,outcome.diff),cbind(control.set,outcome.diff)))
 matchedset.6mwd=set.total #for later use
 #build matching tree using all data
-tree.rpart=rpart(outcome.diff~`LDL receptor`+ALCAM+PLC+CHIT1+`Gal-4`
+tree.rpart=rpart(outcome.diff~`ALCAM`+`Gal-4`+`PECAM-1`
                  # +age+sex+race___4+hf_cat
                  ,method="anova",data=set.total,
                  control=rpart.control(minbucket = 20))
@@ -1192,10 +1102,9 @@ dev.off()
 set.total$smw_node=rpart.predict.leaves(tree.all,set.total,type="where")
 modscore.smw=lm(data=set.total,formula= outcome.diff~0+as.factor(smw_node))
 confint(modscore.smw)
-# 2.5 %   97.5 %
-#   as.factor(smw_node)3 -53.26891 13.49727
-# as.factor(smw_node)4 -11.20765 51.84635
-# as.factor(smw_node)5  48.75768 99.11928
+# 2.5 %    97.5 %
+# as.factor(smw_node)2 -16.52650  35.55242
+# as.factor(smw_node)3  56.36864 113.05136
 
 summary(modscore.smw)
 # Call:
@@ -1203,19 +1112,18 @@ summary(modscore.smw)
 # 
 # Residuals:
 #   Min      1Q  Median      3Q     Max 
-# -322.03  -53.61   14.66   59.63  223.86 
+# -438.43  -55.15   -4.37   57.88  439.20 
 # 
 # Coefficients:
 #   Estimate Std. Error t value Pr(>|t|)    
-# as.factor(smw_node)3   -19.89      16.87  -1.179    0.241    
-# as.factor(smw_node)4    20.32      15.93   1.276    0.204    
-# as.factor(smw_node)5    73.94      12.72   5.811 4.85e-08 ***
+# as.factor(smw_node)2    9.513     13.171   0.722    0.471    
+# as.factor(smw_node)3   84.710     14.335   5.909 2.49e-08 ***
 #   ---
 #   Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
 # 
-# Residual standard error: 96.9 on 125 degrees of freedom
-# Multiple R-squared:  0.2274,	Adjusted R-squared:  0.2088 
-# F-statistic: 12.26 on 3 and 125 DF,  p-value: 4.368e-07
+# Residual standard error: 115.6 on 140 degrees of freedom
+# Multiple R-squared:  0.202,	Adjusted R-squared:  0.1906 
+# F-statistic: 17.72 on 2 and 140 DF,  p-value: 1.38e-07
 
 #Leave one out stability analysis
 set.seed(324)
@@ -1236,7 +1144,7 @@ for (i in 1:max(folds)){
   pairs.train <- set.total$pairin[set.total$subject_id %in% ids]
   
   #this is the result from CART (update with different rpart.control params)
-  tmp=rpart(outcome.diff~`LDL receptor`+ALCAM+PLC+CHIT1+`Gal-4`
+  tmp=rpart(outcome.diff~`ALCAM`+`Gal-4`+`PECAM-1`
             # +age+sex+race___4+hf_cat
             ,method="anova",data=set.total[set.total$pairin %in% pairs.train,],
             control=rpart.control(minbucket = 20))
@@ -1267,7 +1175,7 @@ dev.off()
 ######################
 
 #match on sppb vars
-# [1] "LDL receptor" "ALCAM"        "GP6"          "CCL16"   "ST2"     
+# [1] "GP6" "ST2"     
 
 set.trt=ps.df[ps.df[, "trt"] == 1,]
 set.cont=ps.df[ps.df[,"trt"]==0,]
@@ -1275,23 +1183,13 @@ match.set=c()
 calp.sd=1
 for (i in 1:dim(set.trt)[1]){
   pair.set1=c()
-  var.select1=ifelse(abs(set.cont$`LDL receptor`-
-                           set.trt$`LDL receptor`[i])<
-                       calp.sd*sd(set.trt$`LDL receptor`),1,0)
-  var.select2=ifelse(abs(set.cont$ALCAM-
-                           set.trt$ALCAM[i])<
-                       calp.sd*sd(set.trt$ALCAM),1,0)
-  var.select3=ifelse(abs(set.cont$GP6-
-                           set.trt$GP6[i])<
-                       calp.sd*sd(set.trt$GP6),1,0)
-  var.select4=ifelse(abs(set.cont$CCL16-
-                           set.trt$CCL16[i])<
-                       calp.sd*sd(set.trt$CCL16),1,0)
-  var.select5=ifelse(abs(set.cont$`ST2`-
+  var.select1=ifelse(abs(set.cont$`GP6`-
+                           set.trt$`GP6`[i])<
+                       calp.sd*sd(set.trt$`GP6`),1,0)
+  var.select2=ifelse(abs(set.cont$`ST2`-
                            set.trt$`ST2`[i])<
                        calp.sd*sd(set.trt$`ST2`),1,0)
-  var.selectf=ifelse(var.select1+var.select2+var.select3+
-                       var.select4+var.select5==5,1,0)
+   var.selectf=ifelse(var.select1+var.select2==2,1,0)
   id=c(1:length(var.select1))
   lenset.cont2=as.data.frame(cbind(
     id,set.cont,var.selectf))
@@ -1319,7 +1217,7 @@ outcome.diff=(treat.set$fu_sppb-treat.set$bl_sppb)-
 set.total=as.data.frame(rbind(cbind(treat.set,outcome.diff),cbind(control.set,outcome.diff)))
 matchedset.sppb=set.total #for later use
 #build matching tree using all data
-tree.rpart=rpart(outcome.diff~`LDL receptor`+ALCAM+GP6+CCL16+ST2
+tree.rpart=rpart(outcome.diff~GP6+ST2
                  # +age+sex+race___4+hf_cat
                  ,method="anova",data=set.total,
                  control=rpart.control(minbucket = 20))
@@ -1340,8 +1238,8 @@ set.total$sppb_node=rpart.predict.leaves(tree.all,set.total,type="where")
 modscore.sppb=lm(data=set.total,formula= outcome.diff~0+as.factor(sppb_node))
 confint(modscore.sppb)
 # 2.5 %    97.5 %
-#   as.factor(sppb_node)2 -1.475802 0.5424683
-# as.factor(sppb_node)3  1.572931 2.7381799
+#   as.factor(sppb_node)2 -0.7224797 0.9597679
+# as.factor(sppb_node)3  1.4507776 2.7239796
 
 summary(modscore.sppb)
 # Call:
@@ -1349,18 +1247,18 @@ summary(modscore.sppb)
 # 
 # Residuals:
 #   Min      1Q  Median      3Q     Max 
-# -5.1556 -2.1556 -0.1556  1.5611  6.8444 
+# -7.0874 -2.1186 -0.0874  1.9126  8.9126 
 # 
 # Coefficients:
 #   Estimate Std. Error t value Pr(>|t|)    
-# as.factor(sppb_node)2  -0.4667     0.5096  -0.916    0.362    
-# as.factor(sppb_node)3   2.1556     0.2942   7.326 3.18e-11 ***
+# as.factor(sppb_node)2   0.1186     0.4259   0.279    0.781    
+# as.factor(sppb_node)3   2.0874     0.3223   6.476 1.11e-09 ***
 #   ---
 #   Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
 # 
-# Residual standard error: 2.791 on 118 degrees of freedom
-# Multiple R-squared:  0.316,	Adjusted R-squared:  0.3044 
-# F-statistic: 27.26 on 2 and 118 DF,  p-value: 1.854e-10
+# Residual standard error: 3.271 on 160 degrees of freedom
+# Multiple R-squared:  0.208,	Adjusted R-squared:  0.1981 
+# F-statistic: 21.01 on 2 and 160 DF,  p-value: 7.936e-09
 
 #Leave one out stability analysis
 set.seed(67)
@@ -1381,7 +1279,7 @@ for (i in 1:max(folds)){
   pairs.train <- set.total$pairin[set.total$subject_id %in% ids]
   
   #this is the result from CART (update with different rpart.control params)
-  tmp=rpart(outcome.diff~`LDL receptor`+ALCAM+GP6+CCL16+ST2
+  tmp=rpart(outcome.diff~GP6+ST2
             # +age+sex+race___4+hf_cat
                    ,method="anova",data=set.total[set.total$pairin %in% pairs.train,],
                    control=rpart.control(minbucket = 20))
@@ -1408,43 +1306,42 @@ for (i in 1:length(tree.2)) {
 dev.off()
 
 ######################
-## 15. Supplemental table 2 matched vs. unmatched
+## 15. Supplemental table 2 matched vs. unmatched (NEED TO DO FOR BOTH MATCHINGS)
 ######################
-varlist=c("intervention_1_control_0","age","sex","race___4",
-          "hf_cat","egfr","troponin_t_ng_l","troponin_i_pg_ml","nt_pro_bnp","hs_crp_mg_l",
-          "creatinine_mg_dl")
-tmpdf = rbind(data.frame(set.total[,varlist],dataset="matched"),
-              data.frame(setdiff(ps.df[,varlist],set.total[,varlist]),dataset="unmatched"))
-tmpdf$dataset=factor(tmpdf$dataset,levels=c("unmatched","matched"))
-tmpdf$grp=str_c(tmpdf$intervention_1_control_0,tmpdf$dataset)
-tmpdf$grp=as.factor(tmpdf$grp)
-tmpdf$grp=fct_collapse(tmpdf$grp, Unmatched = c("0unmatched","1unmatched"), MatchedControl = "0matched",MatchedIntervention = "1matched")
-tmpdf$grp = factor(tmpdf$grp,levels = c("MatchedControl","MatchedIntervention","Unmatched"))
-tmpdf=tmpdf[,-which(names(tmpdf) %in% c("intervention_1_control_0","dataset"))]
-
-tbl_summary(tmpdf,
-            by=grp,
-            type = all_continuous() ~ "continuous2",
-            statistic = list(all_continuous() ~ c("{mean} ({sd})",
-                                                  "{median} ({p25}, {p75})", 
-                                                  "{min}, {max}"),
-                             all_categorical() ~ "{n} / {N} ({p}%)"
-            ),label = list(age ~ "Age",
-                           sex ~ "Sex (Female=1)",
-                           race___4 ~ "Race(White=1)",
-                           hf_cat ~ "HF Category (HFpEF=1) (Study)",
-                           egfr ~ "EGFR (Study)",
-                           troponin_t_ng_l ~ "Hs-cTnT (Inova)",
-                           troponin_i_pg_ml ~ "Hs-cTnI (Inova)",
-                           nt_pro_bnp ~ "NT-proBNP (Inova)",
-                           hs_crp_mg_l ~ "Hs-CRP (Inova)",
-                           creatinine_mg_dl ~ "Creatinine (Inova)"
-            ),
-            missing_text = "(Missing)"
-)  %>% modify_header(label ~ "**Variable**") %>% 
-  modify_caption("**Supplemental Table 2. Baseline Measurements (Unmatched vs. Matched)**") %>%
-  as_gt() %>% 
-  gtsave(filename = "SuppTable2_matchedvsunmatched.html")
+# varlist=c("intervention_1_control_0","age","sex","race___4",
+#           "hf_cat","egfr",protlist)
+# tmpdf = rbind(data.frame(set.total[,varlist],dataset="matched"),
+#               data.frame(setdiff(ps.df[,varlist],set.total[,varlist]),dataset="unmatched"))
+# tmpdf$dataset=factor(tmpdf$dataset,levels=c("unmatched","matched"))
+# tmpdf$grp=str_c(tmpdf$intervention_1_control_0,tmpdf$dataset)
+# tmpdf$grp=as.factor(tmpdf$grp)
+# tmpdf$grp=fct_collapse(tmpdf$grp, Unmatched = c("0unmatched","1unmatched"), MatchedControl = "0matched",MatchedIntervention = "1matched")
+# tmpdf$grp = factor(tmpdf$grp,levels = c("MatchedControl","MatchedIntervention","Unmatched"))
+# tmpdf=tmpdf[,-which(names(tmpdf) %in% c("intervention_1_control_0","dataset"))]
+# 
+# tbl_summary(tmpdf,
+#             by=grp,
+#             type = all_continuous() ~ "continuous2",
+#             statistic = list(all_continuous() ~ c("{mean} ({sd})",
+#                                                   "{median} ({p25}, {p75})", 
+#                                                   "{min}, {max}"),
+#                              all_categorical() ~ "{n} / {N} ({p}%)"
+#             ),label = list(age ~ "Age",
+#                            sex ~ "Sex (Female=1)",
+#                            race___4 ~ "Race(White=1)",
+#                            hf_cat ~ "HF Category (HFpEF=1) (Study)",
+#                            egfr ~ "EGFR (Study)",
+#                            troponin_t_ng_l ~ "Hs-cTnT (Inova)",
+#                            troponin_i_pg_ml ~ "Hs-cTnI (Inova)",
+#                            nt_pro_bnp ~ "NT-proBNP (Inova)",
+#                            hs_crp_mg_l ~ "Hs-CRP (Inova)",
+#                            creatinine_mg_dl ~ "Creatinine (Inova)"
+#             ),
+#             missing_text = "(Missing)"
+# )  %>% modify_header(label ~ "**Variable**") %>% 
+#   modify_caption("**Supplemental Table 2. Baseline Measurements (Unmatched vs. Matched)**") %>%
+#   as_gt() %>% 
+#   gtsave(filename = "SuppTable2_matchedvsunmatched.html")
 
 ######################
 ## 16. Supplemental figure 3 - protein change (baseline to follow up) by treatment
@@ -1659,3 +1556,178 @@ for (i in 1:length(protlist)){
   plot(med_results,main=protlist[i])
 }
 dev.off()
+
+# WGCNA clustering
+
+#visualize correlation matrices
+p1 <- ggcorrplot(cor(na.omit(rprotblds[,3:94])),
+                 title="All Participants (Baseline)",hc.order=TRUE,hc.method="complete")+hw+
+  theme(axis.text = element_text(size=5), axis.title=element_blank(),
+        axis.text.x=element_text(angle=90))
+
+pdf("Results/correlationplot_allparticipants_baseline.pdf", onefile = TRUE)
+p1
+
+#rehab vs usual care
+p1 <- ggcorrplot(cor(na.omit(rprotblds[rprotblds$intervention_1_control_0==0,3:94])),
+                 title="Usual Care Patients (Baseline)",hc.order=TRUE,hc.method="complete")+hw+
+  theme(axis.text = element_text(size=5), axis.title=element_blank(),
+        axis.text.x=element_text(angle=90))
+
+pdf("Results/correlationplot_usualcare_baseline.pdf", onefile = TRUE)
+p1
+dev.off()
+
+#get order of proteins
+cormat2 = cor(na.omit(rprotblds[rprotblds$intervention_1_control_0==1,as.character(p1$data[1:92,1])]))
+
+p2=ggcorrplot(cormat2,
+              title="Rehab Patients (Baseline)",hc.order=FALSE,hc.method="complete")+hw+
+  theme(axis.text = element_text(size=5), axis.title=element_blank(),
+        axis.text.x=element_text(angle=90))
+pdf("Results/correlationplot_rehab_baseline.pdf", onefile = TRUE)
+p2
+dev.off()
+
+#test equality of covariance matrices HFrEF vs HFpEF
+testCov(na.omit(rprotblds[rprotblds$intervention_1_control_0==0,as.character(p1$data[1:92,1])]),
+        na.omit(rprotblds[rprotblds$intervention_1_control_0==1,as.character(p1$data[1:92,1])]),
+        method="ALL",J=5000,alpha=0.05,n.core=1)
+#no difference between the two at baseline
+
+
+#create standardized protein expressions
+naset=which(apply(rprotblds[,3:94],1,function(x) sum(is.na(x)))==1) 
+rprotblds.std = apply(rprotblds[-naset,3:94],2,function(x) (x-mean(x)/sd(x)))
+
+#cluster
+# adj1.all=cor(na.omit(rprotblds[,3:94]))
+powers = c(c(1:20), seq(from = 22, to=30, by=2))
+sft = pickSoftThreshold(na.omit(rprotblds[,3:94]), powerVector = powers, verbose = 5) 
+
+plot(sft$fitIndices[,1], -sign(sft$fitIndices[,3])*sft$fitIndices[,2],
+     xlab="Soft Threshold (power)",ylab="Scale Free Topology Model Fit,signed R^2",type="n",
+     main = paste("Scale independence"));
+text(sft$fitIndices[,1], -sign(sft$fitIndices[,3])*sft$fitIndices[,2],
+     labels=powers,cex=0.9,col="red");
+# this line corresponds to using an R^2 cut-off of h
+abline(h=0.90,col="red") 
+
+par(mar=c(1,1,1,1))
+plot(sft$fitIndices[,1], sft$fitIndices[,5],
+     xlab="Soft Threshold (power)",ylab="Mean Connectivity", type="n",
+     main = paste("Mean connectivity"))
+text(sft$fitIndices[,1], sft$fitIndices[,5], labels= sft$fitIndices[,1],col="red")
+
+
+#create adjacency matrix
+adj1.all=abs(cor(rprotblds.std))^4
+# adjacency <- adjacency(na.omit(rprotblds[,3:94]), power = 4) #same as above
+
+# Turn adjacency into a measure of dissimilarity and cluster
+# dissADJ=(1-adj1.all)/2
+TOM.dissimilarity <- 1-TOMsimilarity(adj1.all)
+# hierADJ=hclust(as.dist(dissADJ), method="complete" )
+# hierADJ=hclust(as.dist(dissADJ), method="average" )
+rownames(TOM.dissimilarity) <- colnames(rprotblds.std)
+hierADJ = hclust(as.dist(TOM.dissimilarity), method='complete')
+#hierADJ = hclust(as.dist(TOM.dissimilarity), method='average')
+all.dend = as.dendrogram(hierADJ)
+
+plot(hierADJ, main = "Gene clustering on TOM-based dissimilarity")
+
+#identify modules
+Modules <- cutreeDynamic(dendro = hierADJ, 
+                         distM = TOM.dissimilarity, 
+                         deepSplit = 2, 
+                         pamRespectsDendro = FALSE, 
+                         minClusterSize = 6)
+table(Modules)
+ModuleColors <- labels2colors(Modules) #assigns each module number a color
+write.csv(data.frame(protein=colnames(rprotblds.std),colors=ModuleColors),
+          file = "Results/protein_modules.csv")
+
+
+table(ModuleColors) #returns the counts for each color (aka the number of genes within each module)
+
+plotDendroAndColors(hierADJ, ModuleColors,"Module",
+                    dendroLabels = NULL, cex.dendroLabels=0.5,
+                    addGuide = FALSE, 
+                    main = "Protein dendrogram and module colors")
+
+MElist <- moduleEigengenes(as.data.frame(rprotblds.std), colors = ModuleColors) 
+MEs <- MElist$eigengenes  #242 rows for observations and 5 eigengenes
+head(MEs)
+
+#order MEs so similar ones are next to each other
+MEs0 <- orderMEs(MEs)
+module_order = names(MEs0) %>% gsub("ME","", .)
+
+
+MEs0$ID <- rprotblds$subject_id[-naset]
+MEs0$bl_smw <- rprotblds$bl_smw[-naset]
+MEs0$fu_smw <- rprotblds$fu_smw[-naset]
+MEs0$chg_smw <- MEs0$fu_smw - MEs0$bl_smw
+MEs0$bl_sppb <- rprotblds$bl_sppb[-naset]
+MEs0$fu_sppb <- rprotblds$fu_sppb[-naset]
+MEs0$chg_sppb <- MEs0$fu_sppb - MEs0$bl_sppb
+
+MEs0$treatment <- rprotblds$intervention_1_control_0[-naset]
+
+ggplot(data=melt(cor(MEs0[,-which(names(MEs0)=="ID")],use="pairwise.complete.obs")),aes(x=Var1,y=Var2,fill=value))+
+  geom_tile()+
+  theme_bw() +
+  scale_fill_gradient2(
+    low = "blue",
+    high = "red",
+    mid = "white",
+    midpoint = 0,
+    limit = c(-1,1)) +
+  theme(axis.text.x = element_text(angle=90)) +
+  labs(title = "Module-trait Relationships", y = "Modules", fill="corr")
+
+summary(lm(data=MEs0,formula=fu_sppb ~ bl_sppb + MEturquoise*treatment))
+summary(lm(data=MEs0,formula=fu_smw ~ bl_smw + MEturquoise*treatment))
+summary(lm(data=MEs0,formula=fu_smw ~ bl_smw + MEgreen*treatment))
+summary(lm(data=MEs0,formula=fu_smw ~ bl_smw + MEblue*treatment))
+
+summary(lm(data=MEs0,formula=fu_sppb ~ bl_sppb + MEbrown*treatment))
+summary(lm(data=MEs0,formula=fu_smw ~ bl_smw + MEbrown*treatment))
+
+
+#extract most influential proteins for each cluster (top 5)
+
+for (i in 1:(which(names(MEs0)=="ID")-1)){
+  clr=sapply(names(MEs0)[1:(which(names(MEs0)=="ID")-1)],function(x) substring(x,3,nchar(x)))[i]
+  geneModuleMembership = as.data.frame(cor(rprotblds.std[,ModuleColors==clr], MEs0[,i], use = "p"))
+  MMPvalue = as.data.frame(corPvalueStudent(as.matrix(geneModuleMembership), nrow(rprotblds.std)))
+  names(geneModuleMembership) = paste("MM", substring(names(MEs0)[1:(which(names(MEs0)=="ID")-1)], 3), sep="")[i]
+  names(MMPvalue) = paste("p.MM", substring(names(MEs0)[1:(which(names(MEs0)=="ID")-1)], 3), sep="")[i]
+  
+  print(geneModuleMembership[order(geneModuleMembership[,1],decreasing=TRUE)[1:5],1,drop=FALSE])
+  print(MMPvalue[order(geneModuleMembership[,1],decreasing=TRUE)[1:5],1,drop=FALSE])
+}
+
+
+
+
+
+
+
+
+
+
+
+plot(x=rprotblds.std[,"IGFBP-7"],y=MEs0[,"MEbrown"])
+# Plot the dendrogram with module colors (5 clusters)
+height=sort(hierADJ$height,decreasing=TRUE)[5]
+clusthgt=cutreeStatic(hierADJ,cutHeight=height, minSize=1)
+allcol=brewer.pal(5,"Set3")[clusthgt]
+allcol=data.frame(allcol)
+names(allcol)="Cluster"
+pdf("Dendrogram_FiveClusters_allparticipants.pdf", width=15,onefile = TRUE)
+plotDendroAndColors(hierADJ, colors = allcol,
+                    dendroLabels = NULL, abHeight = height,
+                    main = "Protein dendrogram and clusters (all participants)")
+dev.off()
+
