@@ -554,7 +554,7 @@ dev.off()
 #LASSO selected vars for 6MWD
 # [1] "ALCAM" "Gal-4"         
 
-#BART selected vars for 6MWD: Gal-4, PECAM-1, ICAM-2, MCP-1, t-PA, Gal-3 (Could stop after Gal-4 and PECAM)
+#BART selected vars for 6MWD: Gal-4, PECAM-1
 
 #LASSO selected vars for SPPB
 # #[1] "GP6"    
@@ -1171,6 +1171,45 @@ for (i in 1:length(tree.2)) {
 dev.off()
 
 ######################
+## 13. Supplemental table 1 matched vs. unmatched 6mwd 
+######################
+varlist=c("intervention_1_control_0","age","sex","race___4",
+          "hf_cat","egfr",protlist)
+tmpdf = rbind(data.frame(set.total[,varlist],dataset="matched"),
+              data.frame(setdiff(ps.df[,varlist],set.total[,varlist]),dataset="unmatched"))
+tmpdf$dataset=factor(tmpdf$dataset,levels=c("unmatched","matched"))
+tmpdf$grp=str_c(tmpdf$intervention_1_control_0,tmpdf$dataset)
+tmpdf$grp=as.factor(tmpdf$grp)
+tmpdf$grp=fct_collapse(tmpdf$grp, Unmatched = c("0unmatched","1unmatched"), MatchedControl = "0matched",MatchedIntervention = "1matched")
+tmpdf$grp = factor(tmpdf$grp,levels = c("MatchedControl","MatchedIntervention","Unmatched"))
+tmpdf=tmpdf[,-which(names(tmpdf) %in% c("intervention_1_control_0","dataset"))]
+
+tbl_summary(tmpdf,
+            by=grp,
+            type = all_continuous() ~ "continuous2",
+            statistic = list(all_continuous() ~ c("{mean} ({sd})",
+                                                  "{median} ({p25}, {p75})",
+                                                  "{min}, {max}"),
+                             all_categorical() ~ "{n} / {N} ({p}%)"
+            ),label = list(age ~ "Age",
+                           sex ~ "Sex (Female=1)",
+                           race___4 ~ "Race(White=1)",
+                           hf_cat ~ "HF Category (HFpEF=1) (Study)",
+                           egfr ~ "EGFR (Study)",
+                           ALCAM ~ "ALCAM",
+                           Gal.4 ~ "Gal-4",
+                           PECAM.1 ~ "PECAM-1",
+                           GP6 ~ "GP6",
+                           ST2 ~ "ST2"
+            ),
+            missing_text = "(Missing)"
+)  %>% modify_header(label ~ "**Variable**") %>%
+  modify_caption("**Supplemental Table 1a. Baseline Measurements (Unmatched vs. Matched) 6MWD**") %>%
+  as_gt() %>%
+  gtsave(filename = "Results/SuppTable1a_6MWDmatchedvsunmatched.html")
+
+
+######################
 ## 13. SPPB Matching Tree
 ######################
 
@@ -1306,42 +1345,42 @@ for (i in 1:length(tree.2)) {
 dev.off()
 
 ######################
-## 15. Supplemental table 2 matched vs. unmatched (NEED TO DO FOR BOTH MATCHINGS)
+## 13. Supplemental table 1 matched vs. unmatched sppb 
 ######################
-# varlist=c("intervention_1_control_0","age","sex","race___4",
-#           "hf_cat","egfr",protlist)
-# tmpdf = rbind(data.frame(set.total[,varlist],dataset="matched"),
-#               data.frame(setdiff(ps.df[,varlist],set.total[,varlist]),dataset="unmatched"))
-# tmpdf$dataset=factor(tmpdf$dataset,levels=c("unmatched","matched"))
-# tmpdf$grp=str_c(tmpdf$intervention_1_control_0,tmpdf$dataset)
-# tmpdf$grp=as.factor(tmpdf$grp)
-# tmpdf$grp=fct_collapse(tmpdf$grp, Unmatched = c("0unmatched","1unmatched"), MatchedControl = "0matched",MatchedIntervention = "1matched")
-# tmpdf$grp = factor(tmpdf$grp,levels = c("MatchedControl","MatchedIntervention","Unmatched"))
-# tmpdf=tmpdf[,-which(names(tmpdf) %in% c("intervention_1_control_0","dataset"))]
-# 
-# tbl_summary(tmpdf,
-#             by=grp,
-#             type = all_continuous() ~ "continuous2",
-#             statistic = list(all_continuous() ~ c("{mean} ({sd})",
-#                                                   "{median} ({p25}, {p75})", 
-#                                                   "{min}, {max}"),
-#                              all_categorical() ~ "{n} / {N} ({p}%)"
-#             ),label = list(age ~ "Age",
-#                            sex ~ "Sex (Female=1)",
-#                            race___4 ~ "Race(White=1)",
-#                            hf_cat ~ "HF Category (HFpEF=1) (Study)",
-#                            egfr ~ "EGFR (Study)",
-#                            troponin_t_ng_l ~ "Hs-cTnT (Inova)",
-#                            troponin_i_pg_ml ~ "Hs-cTnI (Inova)",
-#                            nt_pro_bnp ~ "NT-proBNP (Inova)",
-#                            hs_crp_mg_l ~ "Hs-CRP (Inova)",
-#                            creatinine_mg_dl ~ "Creatinine (Inova)"
-#             ),
-#             missing_text = "(Missing)"
-# )  %>% modify_header(label ~ "**Variable**") %>% 
-#   modify_caption("**Supplemental Table 2. Baseline Measurements (Unmatched vs. Matched)**") %>%
-#   as_gt() %>% 
-#   gtsave(filename = "SuppTable2_matchedvsunmatched.html")
+varlist=c("intervention_1_control_0","age","sex","race___4",
+          "hf_cat","egfr",protlist)
+tmpdf = rbind(data.frame(set.total[,varlist],dataset="matched"),
+              data.frame(setdiff(ps.df[,varlist],set.total[,varlist]),dataset="unmatched"))
+tmpdf$dataset=factor(tmpdf$dataset,levels=c("unmatched","matched"))
+tmpdf$grp=str_c(tmpdf$intervention_1_control_0,tmpdf$dataset)
+tmpdf$grp=as.factor(tmpdf$grp)
+tmpdf$grp=fct_collapse(tmpdf$grp, Unmatched = c("0unmatched","1unmatched"), MatchedControl = "0matched",MatchedIntervention = "1matched")
+tmpdf$grp = factor(tmpdf$grp,levels = c("MatchedControl","MatchedIntervention","Unmatched"))
+tmpdf=tmpdf[,-which(names(tmpdf) %in% c("intervention_1_control_0","dataset"))]
+
+tbl_summary(tmpdf,
+            by=grp,
+            type = all_continuous() ~ "continuous2",
+            statistic = list(all_continuous() ~ c("{mean} ({sd})",
+                                                  "{median} ({p25}, {p75})",
+                                                  "{min}, {max}"),
+                             all_categorical() ~ "{n} / {N} ({p}%)"
+            ),label = list(age ~ "Age",
+                           sex ~ "Sex (Female=1)",
+                           race___4 ~ "Race(White=1)",
+                           hf_cat ~ "HF Category (HFpEF=1) (Study)",
+                           egfr ~ "EGFR (Study)",
+                           ALCAM ~ "ALCAM",
+                           Gal.4 ~ "Gal-4",
+                           PECAM.1 ~ "PECAM-1",
+                           GP6 ~ "GP6",
+                           ST2 ~ "ST2"
+            ),
+            missing_text = "(Missing)"
+)  %>% modify_header(label ~ "**Variable**") %>%
+  modify_caption("**Supplemental Table 1b. Baseline Measurements (Unmatched vs. Matched) SPPB**") %>%
+  as_gt() %>%
+  gtsave(filename = "Results/SuppTable1b_SPPBmatchedvsunmatched.html")
 
 ######################
 ## 16. Supplemental figure 3 - protein change (baseline to follow up) by treatment
