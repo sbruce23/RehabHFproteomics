@@ -1704,6 +1704,7 @@ module_order = names(MEs0) %>% gsub("ME","", .)
 
 
 MEs0$ID <- rprotblds$subject_id[-naset]
+MEs0$age <- rprotblds$age[-naset]
 MEs0$bl_smw <- rprotblds$bl_smw[-naset]
 MEs0$fu_smw <- rprotblds$fu_smw[-naset]
 MEs0$chg_smw <- MEs0$fu_smw - MEs0$bl_smw
@@ -1711,9 +1712,11 @@ MEs0$bl_sppb <- rprotblds$bl_sppb[-naset]
 MEs0$fu_sppb <- rprotblds$fu_sppb[-naset]
 MEs0$chg_sppb <- MEs0$fu_sppb - MEs0$bl_sppb
 
-MEs0$treatment <- rprotblds$intervention_1_control_0[-naset]
-
-ggplot(data=melt(cor(MEs0[,-which(names(MEs0)=="ID")],use="pairwise.complete.obs")),aes(x=Var1,y=Var2,fill=value))+
+df=melt(cor(MEs0[,-which(names(MEs0)=="ID")],use="pairwise.complete.obs"))
+df=df[!(df$Var1 %in% c('MEgreen','MEblue','MEyellow','MEbrown','MEturquoise','MEgrey')),]
+df=df[!(df$Var2 %in% c('age','bl_smw','fu_smw','chg_smw','bl_sppb','fu_sppb','chg_sppb','MEgrey')),]
+pdf("Results/WGCNA_heatmap.pdf", onefile = TRUE)
+ggplot(data=df,aes(x=Var1,y=Var2,fill=value))+
   geom_tile()+
   theme_bw() +
   scale_fill_gradient2(
@@ -1721,9 +1724,19 @@ ggplot(data=melt(cor(MEs0[,-which(names(MEs0)=="ID")],use="pairwise.complete.obs
     high = "red",
     mid = "white",
     midpoint = 0,
-    limit = c(-1,1)) +
+    limit = c(-0.5,0.5)) +
   theme(axis.text.x = element_text(angle=90)) +
-  labs(title = "Module-trait Relationships", y = "Modules", fill="corr")
+  labs(title = "Module-Characteristic Relationships", 
+       fill="Correlation",
+       x = "Modules",
+       y="Characteristics")
+
+dev.off()
+
+#add correlation coefficients and asterisks for p-value < 0.05 or something,
+#remove grey module
+
+MEs0$treatment <- rprotblds$intervention_1_control_0[-naset]
 
 summary(lm(data=MEs0,formula=fu_sppb ~ bl_sppb + MEturquoise*treatment))
 summary(lm(data=MEs0,formula=fu_smw ~ bl_smw + MEturquoise*treatment))
@@ -1731,7 +1744,7 @@ summary(lm(data=MEs0,formula=fu_smw ~ bl_smw + MEgreen*treatment))
 summary(lm(data=MEs0,formula=fu_smw ~ bl_smw + MEblue*treatment))
 
 summary(lm(data=MEs0,formula=fu_sppb ~ bl_sppb + MEbrown*treatment))
-summary(lm(data=MEs0,formula=fu_smw ~ bl_smw + MEbrown*treatment))
+summary(lm(data=MEs0,formula=fu_smw ~ bl_smw + MEyellow*treatment))
 
 
 #extract most influential proteins for each cluster (top 5)
