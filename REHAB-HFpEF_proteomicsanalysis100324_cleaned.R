@@ -1713,28 +1713,48 @@ MEs0$fu_sppb <- rprotblds$fu_sppb[-naset]
 MEs0$chg_sppb <- MEs0$fu_sppb - MEs0$bl_sppb
 
 df=melt(cor(MEs0[,-which(names(MEs0)=="ID")],use="pairwise.complete.obs"))
+
 df=df[!(df$Var1 %in% c('MEgreen','MEblue','MEyellow','MEbrown','MEturquoise','MEgrey')),]
 df=df[!(df$Var2 %in% c('age','bl_smw','fu_smw','chg_smw','bl_sppb','fu_sppb','chg_sppb','MEgrey')),]
+
+#compute p-values
+for (i in 1:nrow(df)){
+  b1 <- as.character(df$Var1[i])
+  b2 <- as.character(df$Var2[i])
+  df$pval[i] <- cor.test(MEs0[,which(colnames(MEs0) %in% b1)],
+                         MEs0[,which(colnames(MEs0) %in% b2)],
+                                 method="pearson",use="pairwise.complete.obs")$p.value
+}
+df$sig = df$pval<0.01
+df$text = ifelse(df$sig==TRUE & df$value != 1,paste0(round(df$value,3),"*"),round(df$value,3))
+
+
 pdf("Results/WGCNA_heatmap.pdf", onefile = TRUE)
-ggplot(data=df,aes(x=Var1,y=Var2,fill=value))+
-  geom_tile()+
-  theme_bw() +
-  scale_fill_gradient2(
-    low = "blue",
-    high = "red",
-    mid = "white",
-    midpoint = 0,
-    limit = c(-0.5,0.5)) +
-  theme(axis.text.x = element_text(angle=90)) +
-  labs(title = "Module-Characteristic Relationships", 
-       fill="Correlation",
-       x = "Modules",
-       y="Characteristics")
+ggplot(df, aes(Var2, Var1, fill = value))+
+  geom_tile(color = "white")+
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+                       midpoint = 0, limit = c(-0.5,0.5), space = "Lab", 
+                       name="Pearson\nCorrelation") +
+  theme_minimal()+ # minimal theme
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+                                   size = 12, hjust = 1))+
+  coord_fixed()+
+  geom_text(aes(Var2, Var1, label = text), color = "black", size = 4) +
+  theme(
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.border = element_blank(),
+    panel.background = element_blank(),
+    axis.ticks = element_blank(),
+    legend.position = "bottom",
+    legend.direction = "horizontal") +
+  guides(fill = guide_colorbar(barwidth = 15, barheight = 1,
+                               title.position = "top", title.hjust = 0.5))+
+  coord_flip()
 
 dev.off()
 
-#add correlation coefficients and asterisks for p-value < 0.05 or something,
-#remove grey module
 
 MEs0$treatment <- rprotblds$intervention_1_control_0[-naset]
 
@@ -1757,7 +1777,7 @@ for (i in 1:(which(names(MEs0)=="ID")-1)){
   names(MMPvalue) = paste("p.MM", substring(names(MEs0)[1:(which(names(MEs0)=="ID")-1)], 3), sep="")[i]
   
   print(geneModuleMembership[order(geneModuleMembership[,1],decreasing=TRUE)[1:5],1,drop=FALSE])
-  print(MMPvalue[order(geneModuleMembership[,1],decreasing=TRUE)[1:5],1,drop=FALSE])
+  #print(MMPvalue[order(geneModuleMembership[,1],decreasing=TRUE)[1:5],1,drop=FALSE])
 }
 
 
