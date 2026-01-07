@@ -1,8 +1,8 @@
 # REHAB-HF Proteomics Analysis
 
-Comprehensive proteomics analysis of protein biomarkers and rehabilitation outcomes in heart failure with preserved ejection fraction (HFpEF).
+Comprehensive proteomics analysis of protein biomarkers and rehabilitation outcomes in heart failure.
 
-**Study:** REHAB-HFpEF (Rehabilitation Therapy in Heart Failure with Preserved Ejection Fraction)
+**Study:** Secondary Analysis of REHAB-HF (Rehabilitation and Exercise Training After Hospitalization [NCT01508650])
 
 **Primary Outcomes:** 
 - SPPB (Short Physical Performance Battery)
