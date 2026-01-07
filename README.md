@@ -26,7 +26,7 @@ This repository contains the complete analysis pipeline for identifying and vali
 
 RehabHFproteomics/
 ├── README.md                          # This file
-├── REHAB-HFpEF_proteomicsanalysis010726_GitHub.R 
+├── REHAB-HF_proteomicsanalysis010726_GitHub.R 
 ├── Results/ #contains all tables, figures, and additional output
 │   ├── RegressionAnalyses/ #contains summary output of individual regression analyses
 
