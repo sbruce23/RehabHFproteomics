@@ -158,10 +158,6 @@ Tests whether changes in protein expression mediate intervention effects on outc
 - `SuppFigure4_Proteinchange.pdf` - Protein changes by intervention
 - `protein_modules.csv` - WGCNA module assignments
 
-## License
-
-MIT License - See LICENSE file for details
-
 ## Contact
 
 Questions or issues? Please open an issue on GitHub or contact the corresponding author.
