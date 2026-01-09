@@ -92,15 +92,6 @@ library(randomForest)
 | `bl_smw` | Baseline 6MWD | meters |
 | `fu_smw` | 12-week follow-up 6MWD | meters |
 
-### Clinical Events
-
-| Variable | Description | Values |
-|----------|-------------|--------|
-| `rehosp` | Rehospitalization | 0/1 |
-| `death` | Mortality | 0/1 |
-| `event` | Rehospitalization or death | 0/1 |
-| `lfu` | Lost to follow-up | 0/1 |
-
 ### Intervention
 
 | Variable | Description | Values |
