@@ -2,6 +2,8 @@
 
 Comprehensive proteomics analysis of protein biomarkers and rehabilitation outcomes in heart failure.
 
+Full analysis available at https://sbruce23.github.io/RehabHFproteomics/REHAB-HF_ProteomicsMarkdown_cleaned_011326.html
+
 **Study:** Secondary Analysis of REHAB-HF (Rehabilitation and Exercise Training After Hospitalization [NCT01508650])
 
 **Primary Outcomes:** 
